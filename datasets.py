@@ -6,6 +6,7 @@ import torch
 import torchvision
 
 from references.detection.transforms import Compose, RandomHorizontalFlip, ToTensor
+from references.detection.utils import collate_fn
 
 
 OBJECT_CLASSES = ['__background__', 'person' , 'bird', 'cat', 'cow', 'dog', 'horse', 'sheep',
@@ -90,3 +91,22 @@ def get_transform(is_train):
         transforms.append(RandomHorizontalFlip(0.5))
     
     return Compose(transforms)
+
+
+def load_data(root, batch_size):
+    """
+    load train and val data loaders
+    Args:
+        root (string): Root directory of the Pascal Part Dataset. Must contain the fololowing dir structure:
+            Images: `root`/JPEGImages/*.jpg
+            Object and Part annotations: `root`/Annotations_Part_json/*.json [see `parse_Pascal_VOC_Part_Anno.py`]
+            train/val splits: `root`/ImageSets/Main/`image_set`.txt
+        batch_size: batch size for training
+    """
+    train_dataset = PascalPartVOCDetection(root, 'train', transforms=get_transform(is_train=True))
+    val_dataset = PascalPartVOCDetection(root, 'val', transforms=get_transform(is_train=False))
+
+    train_loader = torch.utils.data.DataLoader(train_dataset, batch_size=batch_size, shuffle=True, collate_fn=collate_fn, drop_last=True)
+    val_loader = torch.utils.data.DataLoader(val_dataset, batch_size=1, shuffle=False, collate_fn=collate_fn)
+
+    return train_loader, val_loader
