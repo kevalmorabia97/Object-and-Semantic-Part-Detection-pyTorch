@@ -9,7 +9,7 @@ def read_file(filename):
 	return data
 
 
-def collate_positive_samples(classnames, rootclassname):
+def collate_positive_samples(classnames, rootclassname, outpath):
 	data_train = []
 	data_val = []
 
@@ -27,18 +27,21 @@ def collate_positive_samples(classnames, rootclassname):
 		data_train += d1["1"]
 		data_val += d2["1"]
 
-	f = open(root + rootclassname + "_train.txt", "w")
+	f = open(outpath + rootclassname + "_train.txt", "w")
 	for d in set(data_train):
 		f.write(d + "\n")
 
-	f = open(root + rootclassname + "_val.txt", "w")
+	f = open(outpath + rootclassname + "_val.txt", "w")
 	for d in set(data_val):
 		f.write(d + "\n")
 
 
 if __name__ == "__main__":
-	collate_positive_samples(["horse", "dog", "cat", "bird", "sheep", "bus", "cow"], "animals")
-	# collate_positive_samples(["tvmonitor", "pottedplant", "bottle", "chair", "diningtable", "sofa"], "indoor")
-	collate_positive_samples(["tvmonitor", "pottedplant", "bottle"], "indoor") # removing those which do not have granunal part information available
-	# collate_positive_samples(["train", "aeroplane", "car", "motorbike", "bicycle", "bus", "boat"], "vehicle")
-	collate_positive_samples(["train", "aeroplane", "car", "motorbike", "bicycle", "bus"], "vehicle")  # removing those which do not have granunal part information available
+	outpath = "./category-wise/"
+	# collate_positive_samples(["tvmonitor", "pottedplant", "bottle", "chair", "diningtable", "sofa"], "indoor", outpath)
+	# collate_positive_samples(["train", "aeroplane", "car", "motorbike", "bicycle", "bus", "boat"], "vehicle", outpath)
+	
+	collate_positive_samples(["horse", "dog", "cat", "bird", "sheep", "bus", "cow"], "animals", outpath)
+	collate_positive_samples(["tvmonitor", "pottedplant", "bottle"], "indoor", outpath) # removing those which do not have granunal part information available
+	collate_positive_samples(["train", "aeroplane", "car", "motorbike", "bicycle", "bus"], "vehicle", outpath)  # removing those which do not have granunal part information available
+	collate_positive_samples(["person"], "person", outpath)
