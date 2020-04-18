@@ -45,18 +45,18 @@ class PascalPartVOCDetection(torchvision.datasets.vision.VisionDataset):
             Object and Part annotations: `root`/Annotations_Part_json/*.json [see `parse_Pascal_VOC_Part_Anno.py`]
             train/val splits: `root`/ImageSets/Main/`image_set`.txt
         image_set (string, optional): Select the image_set to use, e.g. train, trainval, val
+        transforms (callable, optional): A function/transform that takes input sample and its target as entry
+            and returns a transformed version.
         transform (callable, optional): A function/transform that  takes in an PIL image
             and returns a transformed version. E.g, transforms.RandomCrop
         target_transform (callable, required): A function/transform that takes in the target and transforms it.
-        transforms (callable, optional): A function/transform that takes input sample and its target as entry
-            and returns a transformed version.
         classes: list of all string class names that are to be considered from all annotations. Other object/part classes will be ignored.
             Default: None i.e. all object/part classes depending on values of `use_objects` and `use_parts`
             Note: `background` class should also be present
         use_objects: if True (default), use object annotations
         use_parts: if True (default), use part annotations that are present inside an object
     """
-    def __init__(self, root, image_set='train', transform=None, target_transform=None, transforms=None, classes=None, use_objects=True, use_parts=True):
+    def __init__(self, root, image_set='train', transforms=None, transform=None, target_transform=None, classes=None, use_objects=True, use_parts=True):
         super(PascalPartVOCDetection, self).__init__(root, transforms, transform, target_transform)
 
         image_dir = '%s/JPEGImages/' % root
@@ -93,27 +93,7 @@ class PascalPartVOCDetection(torchvision.datasets.vision.VisionDataset):
             tuple: (image, target) where target is a dictionary
         """
         img = Image.open(self.images[index]).convert('RGB')
-        target = json.load(open(self.annotations[index], 'r'))
-        
         boxes, labels, iscrowd = self.parse_json_annotation(self.annotations[index])
-        for obj in target['object']:
-            if self.use_objects:
-                xmin = obj['bndbox']['xmin']
-                ymin = obj['bndbox']['ymin']
-                xmax = obj['bndbox']['xmax']
-                ymax = obj['bndbox']['ymax']
-                boxes.append([xmin, ymin, xmax, ymax])    
-                labels.append(OBJECT_CLASSES.index(obj['name']))
-                iscrowd.append(False)
-            if self.use_parts:
-                for part in obj['parts']:
-                    xmin = part['bndbox']['xmin']
-                    ymin = part['bndbox']['ymin']
-                    xmax = part['bndbox']['xmax']
-                    ymax = part['bndbox']['ymax']
-                    boxes.append([xmin, ymin, xmax, ymax])
-                    labels.append(PART_CLASSES.index(part['name']))
-                    iscrowd.append(False)
         
         if boxes == []:
             print('%s doesnt have any objects/parts. Returning next image' % self.images[index])
@@ -188,8 +168,8 @@ def load_data(root, batch_size, train_split='train', val_split='val', classes=No
         max_samples: maximum number of samples for train/val datasets. (Default: None)
             Can be set to a small number for faster training
     """
-    train_dataset = PascalPartVOCDetection(root, train_split, transforms=get_transforms(is_train=True), classes=classes, use_objects=use_objects, use_parts=use_parts)
-    val_dataset = PascalPartVOCDetection(root, val_split, transforms=get_transforms(is_train=False), classes=classes, use_objects=use_objects, use_parts=use_parts)
+    train_dataset = PascalPartVOCDetection(root, train_split, get_transforms(is_train=True), classes=classes, use_objects=use_objects, use_parts=use_parts)
+    val_dataset = PascalPartVOCDetection(root, val_split, get_transforms(is_train=False), classes=classes, use_objects=use_objects, use_parts=use_parts)
 
     if max_samples is not None:
         train_dataset = torch.utils.data.Subset(train_dataset, np.arange(max_samples))
