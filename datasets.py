@@ -20,7 +20,7 @@ PART_CLASSES = ['__background__', 'backside', 'beak', 'bliplate', 'body', 'bwhee
                 'coach_1', 'coach_2', 'coach_3', 'coach_4', 'coach_5', 'coach_6', 'coach_7', 'coach_8', 'coach_9',
                 'crightside_1', 'crightside_2', 'crightside_3', 'crightside_4', 'crightside_5', 'crightside_6', 'crightside_7', 'crightside_8',
                 'croofside_1', 'croofside_2', 'croofside_3', 'croofside_4', 'croofside_5',
-                'door_1', 'door_2', 'door_3', 'engine_1', 'engine_2', 'engine_3', 'engine_4', 'engine_5', 'engine_6',
+                'door_1', 'door_2', 'door_3', 'door_4', 'engine_1', 'engine_2', 'engine_3', 'engine_4', 'engine_5', 'engine_6',
                 'fliplate', 'frontside', 'fwheel', 'hair', 'handlebar', 'hbackside', 'head', 'headlight_1',
                 'headlight_2', 'headlight_3', 'headlight_4', 'headlight_5', 'headlight_6', 'headlight_7', 'headlight_8', 'hfrontside', 'hleftside', 'hrightside', 'hroofside',
                 'lbho', 'lbleg', 'lblleg', 'lbpa', 'lbuleg', 'lear', 'lebrow', 'leftmirror', 'leftside', 'leye', 'lfho', 'lfleg', 'lflleg', 'lfoot', 'lfpa', 'lfuleg', 'lhand',
@@ -96,7 +96,7 @@ class PascalPartVOCDetection(torchvision.datasets.vision.VisionDataset):
         boxes, labels, iscrowd = self.parse_json_annotation(self.annotations[index])
         
         if boxes == []:
-            print('%s doesnt have any objects/parts. Returning next image' % self.images[index])
+            print('%s doesnt have any given objects/parts. Returning next image' % self.images[index])
             return self.__getitem__((index+1) % self.__len__())
         boxes = torch.Tensor(boxes)
         
@@ -118,22 +118,24 @@ class PascalPartVOCDetection(torchvision.datasets.vision.VisionDataset):
         boxes, labels, iscrowd = [], [], []
         for obj in target['object']:
             if self.use_objects:
-                xmin = obj['bndbox']['xmin']
-                ymin = obj['bndbox']['ymin']
-                xmax = obj['bndbox']['xmax']
-                ymax = obj['bndbox']['ymax']
-                boxes.append([xmin, ymin, xmax, ymax])    
-                labels.append(OBJECT_CLASSES.index(obj['name']))
-                iscrowd.append(False)
+                if obj['name'] in self.classes: # ignore objects not in given list of classes
+                    xmin = obj['bndbox']['xmin']
+                    ymin = obj['bndbox']['ymin']
+                    xmax = obj['bndbox']['xmax']
+                    ymax = obj['bndbox']['ymax']
+                    boxes.append([xmin, ymin, xmax, ymax]) 
+                    labels.append(self.classes.index(obj['name']))
+                    iscrowd.append(False)
             if self.use_parts:
                 for part in obj['parts']:
-                    xmin = part['bndbox']['xmin']
-                    ymin = part['bndbox']['ymin']
-                    xmax = part['bndbox']['xmax']
-                    ymax = part['bndbox']['ymax']
-                    boxes.append([xmin, ymin, xmax, ymax])
-                    labels.append(PART_CLASSES.index(part['name']))
-                    iscrowd.append(False)
+                    if part['name'] in self.classes: # ignore parts not in given list of classes
+                        xmin = part['bndbox']['xmin']
+                        ymin = part['bndbox']['ymin']
+                        xmax = part['bndbox']['xmax']
+                        ymax = part['bndbox']['ymax']
+                        boxes.append([xmin, ymin, xmax, ymax])
+                        labels.append(self.classes.index(part['name']))
+                        iscrowd.append(False)
         
         return boxes, labels, iscrowd
 

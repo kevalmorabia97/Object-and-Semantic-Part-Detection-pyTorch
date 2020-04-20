@@ -132,3 +132,8 @@ dmypy.json
 data**/
 results**/
 Papers/
+
+# ignore these files
+**/*.pth
+**/*.sh
+**/*.zip

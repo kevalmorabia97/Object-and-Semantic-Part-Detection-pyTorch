@@ -24,6 +24,8 @@ def parse_pascal_part_mat_anno(data_dir, filename):
     for obj in data[1][0]:
         assert len(obj[0]) == 1
         obj_class = obj[0][0]
+        if obj_class == 'table': # this class name is wrong in the pascal parts data annotations
+            obj_class = 'diningtable'
 
         assert len(obj[1]) == 1 and len(obj[1][0]) == 1
         class_id = obj[1][0][0]
