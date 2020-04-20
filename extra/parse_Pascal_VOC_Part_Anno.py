@@ -1,9 +1,8 @@
 import json
 import numpy as np
 import os
+import scipy.io
 from tqdm import tqdm
-
-from mat4py import loadmat
 
 
 def get_bndbox_from_mask(bin_mask):
@@ -11,48 +10,52 @@ def get_bndbox_from_mask(bin_mask):
     return {'xmin': int(x.min()), 'ymin': int(y.min()), 'xmax': int(x.max()), 'ymax': int(y.max())}
 
 
-def parse_PASCAL_PARTS_Anno_for_Detection(data_dir, output_dir):
+def parse_pascal_part_mat_anno(data_dir, filename):
     """
-    parse `data_dir`/*.mat files and store them at `output_dir`/*.json
+    parse <data_dir>/<filename>.mat into json format
     PASCAL-Parts annotations dataset: http://roozbehm.info/pascal-parts/pascal-parts.html
     """
-    if not os.path.exists(output_dir):
-        os.makedirs(output_dir)
+    data = scipy.io.loadmat('%s/%s.mat' % (data_dir, filename))['anno'][0][0]
+    assert data[0][0] == filename
     
-    file_names = [f.name[:-4] for f in os.scandir(data_dir) if f.name.endswith('.mat')]
-    print('%d .mat file(s) found' % len(file_names))
+    parsed_anno = {'filename': filename, 'object': []}
     
-    for file_name in tqdm(file_names):
-        parsed_anno = {'filename': file_name, 'object': []}
+    n_objects = len(data[1][0])
+    for obj in data[1][0]:
+        assert len(obj[0]) == 1
+        obj_class = obj[0][0]
 
-        try:
-            data = loadmat('%s/%s.mat' % (data_dir, file_name))['anno']['objects']
-        except:
-            # Doesn't have part annotation. Use PASCAL Annotations .xml files for these images
-            # See https://github.com/pytorch/vision/blob/master/torchvision/datasets/voc.py -> parse_voc_xml()
-            continue
+        assert len(obj[1]) == 1 and len(obj[1][0]) == 1
+        class_id = obj[1][0][0]
+
+        obj_mask = np.array(obj[2])
+        assert len(obj_mask.shape) == 2
         
-        if type(data['class']) != list:
-            data['class'] = [data['class']]
-            data['mask'] = [data['mask']]
-            data['parts'] = [data['parts']]
-        for obj_idx in range(len(data['class'])):
-            obj_class = data['class'][obj_idx]
-            obj_anno = {'name': obj_class, 'bndbox': get_bndbox_from_mask(data['mask'][obj_idx]), 'parts': []}
-            
-            if type(data['parts'][obj_idx]['part_name']) != list:
-                data['parts'][obj_idx]['part_name'] = [data['parts'][obj_idx]['part_name']]
-                data['parts'][obj_idx]['mask'] = [data['parts'][obj_idx]['mask']]
-            for part_idx in range(len(data['parts'][obj_idx]['part_name'])):
-                part_class = data['parts'][obj_idx]['part_name'][part_idx]
-                part_anno = {'name': part_class, 'bndbox': get_bndbox_from_mask(data['parts'][obj_idx]['mask'][part_idx])}
+        obj_anno = {'name': obj_class, 'bndbox': get_bndbox_from_mask(obj_mask), 'parts': []}
+
+        if obj[3].shape == (0, 0): # no parts
+            pass
+        else:
+            assert obj[3].shape[0] == 1
+            n_parts = obj[3].shape[1]
+
+            for part in obj[3][0]:
+                assert len(part) == 2 and len(part[0]) == 1
+                part_class = part[0][0]
+
+                part_mask = np.array(part[1])
+                assert len(part_mask.shape) == 2
+
+                part_anno = {'name': part_class, 'bndbox': get_bndbox_from_mask(part_mask)}
                 obj_anno['parts'].append(part_anno)
-
-            parsed_anno['object'].append(obj_anno)
-
-        json.dump(parsed_anno, open('%s/%s.json' % (output_dir, file_name), 'w'))
-    print('Done! Parsed json files saved to %s' % output_dir)
+        
+        parsed_anno['object'].append(obj_anno)
+    
+    return parsed_anno
 
 
 if __name__ == '__main__':
-    parse_PASCAL_PARTS_Anno_for_Detection('../data/VOCdevkit/VOC2010/Annotations_Part/', 'Annotations_Part_json/')
+    files = [f.name[:-4] for f in os.scandir('../data/VOCdevkit/VOC2010/Annotations_Part/') if f.name.endswith('.mat')]
+    for filename in tqdm(files):
+        parsed_anno = parse_pascal_part_mat_anno('../data/VOCdevkit/VOC2010/Annotations_Part/', filename)
+        json.dump(parsed_anno, open('%s/%s.json' % ('../data/VOCdevkit/VOC2010/Annotations_Part_json/', filename), 'w'))

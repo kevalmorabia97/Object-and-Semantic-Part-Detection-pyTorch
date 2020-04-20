@@ -3,7 +3,7 @@ Joint detection of Object and its Semantic parts using Faster RCNN model.
 
 **Dataset:** [PASCAL VOC 2010 dataset](http://host.robots.ox.ac.uk/pascal/VOC/voc2010/index.html#devkit)<br>
 **Annotations from:** [PASCAL Parts dataset](http://roozbehm.info/pascal-parts/pascal-parts.html)
-<br>Part Annotations are preprocessed from  \*.mat format to \*.json using ```mat4py``` module and segmentation masks are used to get corresponding bounding box localizations.
+<br>Part Annotations are preprocessed from  \*.mat format to \*.json using ```scipy.io.loadmat``` module and segmentation masks are used to get corresponding bounding box localizations.
 ```
 Directory structure for data is as follows:
 
