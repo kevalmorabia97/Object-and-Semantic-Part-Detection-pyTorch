@@ -44,19 +44,20 @@ class PascalPartVOCDetection(torchvision.datasets.vision.VisionDataset):
             Images: `root`/JPEGImages/*.jpg
             Object and Part annotations: `root`/Annotations_Part_json/*.json [see `parse_Pascal_VOC_Part_Anno.py`]
             train/val splits: `root`/ImageSets/Main/`image_set`.txt
-        image_set (string, optional): Select the image_set to use, e.g. train, trainval, val
+            classes_file (if provided): `root`/ImageSets/Main/`classes_file`.txt
+        image_set (string, optional): Select the image_set to use, e.g. train (default), trainval, val
         transforms (callable, optional): A function/transform that takes input sample and its target as entry
             and returns a transformed version.
         transform (callable, optional): A function/transform that  takes in an PIL image
             and returns a transformed version. E.g, transforms.RandomCrop
         target_transform (callable, required): A function/transform that takes in the target and transforms it.
-        classes: list of all string class names that are to be considered from all annotations. Other object/part classes will be ignored.
+        classes_file: file containing list of class names that are to be considered from all annotations. Other object/part classes will be ignored.
             Default: None i.e. all object/part classes depending on values of `use_objects` and `use_parts`
             Note: `background` class should also be present
         use_objects: if True (default), use object annotations
         use_parts: if True (default), use part annotations that are present inside an object
     """
-    def __init__(self, root, image_set='train', transforms=None, transform=None, target_transform=None, classes=None, use_objects=True, use_parts=True):
+    def __init__(self, root, image_set='train', transforms=None, transform=None, target_transform=None, classes_file=None, use_objects=True, use_parts=True):
         super(PascalPartVOCDetection, self).__init__(root, transforms, transform, target_transform)
 
         image_dir = '%s/JPEGImages/' % root
@@ -70,20 +71,22 @@ class PascalPartVOCDetection(torchvision.datasets.vision.VisionDataset):
         self.use_objects = use_objects
         self.use_parts = use_parts
 
-        if classes is None:
+        if classes_file is None:
             classes = []
             if self.use_objects:
                 classes += OBJECT_CLASSES
             if self.use_parts:
                 classes += PART_CLASSES
             classes = sorted(list(set(classes)))
+        else:
+            classes = list(np.loadtxt('%s/ImageSets/Main/%s.txt' % (root, classes_file), dtype=str))
         self.classes = classes
 
         file_names = np.loadtxt(splits_file, dtype=str)
         self.images = ['%s/%s.jpg' % (image_dir, x) for x in file_names]
         self.annotations = ['%s/%s.json' % (annotation_dir, x) for x in file_names]
 
-        print('Use Objects: %s, Use Parts: %s for %s image set' % (use_objects, use_parts, image_set))
+        print('Use Objects: %s, Use Parts: %s, No. of Classes: %d for %s image set' % (use_objects, use_parts, len(self.classes), image_set))
 
     def __getitem__(self, index):
         """
@@ -151,7 +154,7 @@ def get_transforms(is_train=False):
     return Compose(transforms)
 
 
-def load_data(root, batch_size, train_split='train', val_split='val', classes=None, use_objects=True, use_parts=True, num_workers=0, max_samples=None):
+def load_data(root, batch_size, train_split='train', val_split='val', classes_file=None, use_objects=True, use_parts=True, num_workers=0, max_samples=None):
     """
     `load train and val data loaders`
 
@@ -160,9 +163,10 @@ def load_data(root, batch_size, train_split='train', val_split='val', classes=No
             Images: `root`/JPEGImages/*.jpg
             Object and Part annotations: `root`/Annotations_Part_json/*.json [see `parse_Pascal_VOC_Part_Anno.py`]
             train/val splits: `root`/ImageSets/Main/`image_set`.txt
+            classes_file (if provided): `root`/ImageSets/Main/`classes_file`.txt
         batch_size: batch size for training
         train/val splits: `root`/ImageSets/Main/`image_set`.txt
-        classes: list of all string class names that are to be considered from all annotations. Other object/part classes will be ignored.
+        classes_file: file containing list of class names that are to be considered from all annotations. Other object/part classes will be ignored.
             Default: None i.e. all object/part classes depending on values of `use_objects` and `use_parts`
             Note: `background` class should also be present
         use_objects: if True (default), use object annotations
@@ -170,8 +174,8 @@ def load_data(root, batch_size, train_split='train', val_split='val', classes=No
         max_samples: maximum number of samples for train/val datasets. (Default: None)
             Can be set to a small number for faster training
     """
-    train_dataset = PascalPartVOCDetection(root, train_split, get_transforms(is_train=True), classes=classes, use_objects=use_objects, use_parts=use_parts)
-    val_dataset = PascalPartVOCDetection(root, val_split, get_transforms(is_train=False), classes=classes, use_objects=use_objects, use_parts=use_parts)
+    train_dataset = PascalPartVOCDetection(root, train_split, get_transforms(is_train=True), classes_file=classes_file, use_objects=use_objects, use_parts=use_parts)
+    val_dataset = PascalPartVOCDetection(root, val_split, get_transforms(is_train=False), classes_file=classes_file, use_objects=use_objects, use_parts=use_parts)
 
     if max_samples is not None:
         train_dataset = torch.utils.data.Subset(train_dataset, np.arange(max_samples))

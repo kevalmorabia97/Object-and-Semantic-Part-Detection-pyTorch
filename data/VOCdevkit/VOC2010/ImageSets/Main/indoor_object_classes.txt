@@ -1,0 +1,4 @@
+__background__
+bottle
+pottedplant
+tvmonitor

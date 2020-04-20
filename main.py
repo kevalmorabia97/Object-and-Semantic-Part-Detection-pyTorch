@@ -3,7 +3,7 @@ import numpy as np
 import os
 import torch
 
-from datasets import load_data, OBJECT_CLASSES, PART_CLASSES
+from datasets import load_data
 from models import get_FasterRCNN_model
 from references.detection.engine import train_one_epoch, evaluate
 from utils import set_all_seeds
@@ -15,6 +15,7 @@ parser.add_argument('-d', '--device', type=int, default=0)
 parser.add_argument('-dir', '--data_dir', type=str, default='data/VOCdevkit/VOC2010/')
 parser.add_argument('-tr', '--train_split', type=str, default='train')
 parser.add_argument('-val', '--val_split', type=str, default='val')
+parser.add_argument('-cf', '--classes_file', type=str, default='object_classes')
 parser.add_argument('-e', '--n_epochs', type=int, default=100)
 parser.add_argument('-lr', '--learning_rate', type=float, default=1e-4)
 parser.add_argument('-bs', '--batch_size', type=int, default=1)
@@ -32,6 +33,7 @@ set_all_seeds(123)
 DATA_DIR = args.data_dir
 TRAIN_SPLIT = args.train_split
 VAL_SPLIT = args.val_split
+CLASSES_FILE = args.classes_file if not args.classes_file == '' else None
 N_EPOCHS = args.n_epochs
 USE_OBJECTS = bool(args.use_objects)
 USE_PARTS = bool(args.use_parts)
@@ -40,20 +42,16 @@ MAX_SAMPLES = args.max_samples if args.max_samples > 0 else None
 
 model_save_path = 'saved_model.pth'
 
-CLASSES = []
-if USE_OBJECTS:
-    CLASSES += OBJECT_CLASSES
-if USE_PARTS:
-    CLASSES += PART_CLASSES
-CLASSES = sorted(list(set(CLASSES)))
-n_classes = len(CLASSES) # background class should also be counted!
-
 ########## Hyperparameters ##########
 LEARNING_RATE = args.learning_rate
 BATCH_SIZE = args.batch_size
 WEIGHT_DECAY = args.weight_decay
 
-train_loader, val_loader = load_data(DATA_DIR, BATCH_SIZE, TRAIN_SPLIT, VAL_SPLIT, CLASSES, USE_OBJECTS, USE_PARTS, NUM_WORKERS, MAX_SAMPLES)
+train_loader, val_loader = load_data(DATA_DIR, BATCH_SIZE, TRAIN_SPLIT, VAL_SPLIT, CLASSES_FILE, USE_OBJECTS,
+                                     USE_PARTS, NUM_WORKERS, MAX_SAMPLES)
+
+classes = train_loader.dataset.classes
+n_classes = len(classes) # background class should also be counted!
 
 model = get_FasterRCNN_model(n_classes).to(device)
 if os.path.exists(model_save_path):
