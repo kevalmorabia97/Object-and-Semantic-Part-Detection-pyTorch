@@ -104,6 +104,6 @@ def evaluate(model, data_loader, device, print_freq=1000, header='Test:'):
 
     # accumulate predictions from all images
     coco_evaluator.accumulate()
-    coco_evaluator.summarize()
+    stats = coco_evaluator.summarize()
     torch.set_num_threads(n_threads)
-    return coco_evaluator
+    return coco_evaluator, stats

@@ -40,7 +40,7 @@ USE_PARTS = bool(args.use_parts)
 NUM_WORKERS = args.num_workers
 MAX_SAMPLES = args.max_samples if args.max_samples > 0 else None
 
-model_save_path = 'saved_model.pth'
+model_save_path = 'saved_model_%s.pth' % (TRAIN_SPLIT)
 
 ########## Hyperparameters ##########
 LEARNING_RATE = args.learning_rate
@@ -54,14 +54,26 @@ n_classes = len(classes) # background class should also be counted!
 model = get_FasterRCNN_model(n_classes).to(device)
 if os.path.exists(model_save_path):
     print('Restoring trained model from %s' % model_save_path)
-    model.load_state_dict(torch.load(model_save_path))
+    checkpoint = torch.load(model_save_path)
+    model.load_state_dict(checkpoint['model'])
+    start_epoch = checkpoint['epoch']+1
+    best_val_mAP = checkpoint['mAP']
+else:
+    start_epoch = 0
+    best_val_mAP = 0.
 
 params = [p for p in model.parameters() if p.requires_grad]
 optimizer = torch.optim.SGD(params, lr=LEARNING_RATE, momentum=0.9, weight_decay=WEIGHT_DECAY)
 
-for epoch in range(N_EPOCHS):
+for epoch in range(start_epoch, start_epoch + N_EPOCHS):
     train_one_epoch(model, optimizer, train_loader, device, epoch, print_freq=500)
-    evaluate(model, val_loader, device=device, print_freq=10000, header='Val:')
+    _, stats = evaluate(model, val_loader, device=device, print_freq=10000, header='Val:')
 
-    ## TODO: Check if improvement, then only overwrite saved model
-    torch.save(model.state_dict(), model_save_path)
+    val_mAP = stats['bbox'][0]
+    if val_mAP > best_val_mAP:
+        best_val_mAP = val_mAP
+        checkpoint = {'model': model.state_dict(), 'epoch': epoch, 'mAP': val_mAP}
+        torch.save(checkpoint, model_save_path)
+    print('-'*100)
+
+print('Best val_mAP: %.4f' % best_val_mAP)
