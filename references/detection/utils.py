@@ -144,7 +144,7 @@ def reduce_dict(input_dict, average=True):
 
 class MetricLogger(object):
     def __init__(self, delimiter="\t"):
-        self.meters = defaultdict(SmoothedValue)
+        self.meters = defaultdict(lambda: SmoothedValue(fmt="{global_avg:.4f}"))
         self.delimiter = delimiter
 
     def update(self, **kwargs):
@@ -177,7 +177,7 @@ class MetricLogger(object):
     def add_meter(self, name, meter):
         self.meters[name] = meter
 
-    def log_every(self, iterable, print_freq, header=None):
+    def log_every(self, iterable, print_freq, header=None, device=None):
         i = 0
         if not header:
             header = ''
@@ -192,9 +192,9 @@ class MetricLogger(object):
                 '[{0' + space_fmt + '}/{1}]',
                 'eta: {eta}',
                 '{meters}',
-                'time: {time}',
-                'data: {data}',
-                'max mem: {memory:.0f}'
+                'time: {time}s',
+                'data: {data}s',
+                'max mem: {memory:.0f}MB'
             ])
         else:
             log_msg = self.delimiter.join([
@@ -202,8 +202,8 @@ class MetricLogger(object):
                 '[{0' + space_fmt + '}/{1}]',
                 'eta: {eta}',
                 '{meters}',
-                'time: {time}',
-                'data: {data}'
+                'time: {time}s',
+                'data: {data}s'
             ])
         MB = 1024.0 * 1024.0
         for obj in iterable:
@@ -218,7 +218,7 @@ class MetricLogger(object):
                         i, len(iterable), eta=eta_string,
                         meters=str(self),
                         time=str(iter_time), data=str(data_time),
-                        memory=torch.cuda.max_memory_allocated() / MB))
+                        memory=torch.cuda.max_memory_allocated(device) / MB))
                 else:
                     print(log_msg.format(
                         i, len(iterable), eta=eta_string,
@@ -228,7 +228,7 @@ class MetricLogger(object):
             end = time.time()
         total_time = time.time() - start_time
         total_time_str = str(datetime.timedelta(seconds=int(total_time)))
-        print('{} Total time: {} ({:.4f} s / it)'.format(
+        print('{} Completed! Total time: {} ({:.4f}s / it)'.format(
             header, total_time_str, total_time / len(iterable)))
 
 

@@ -156,7 +156,7 @@ def get_transforms(is_train=False):
 
 def load_data(root, batch_size, train_split='train', val_split='val', classes_file=None, use_objects=True, use_parts=True, num_workers=0, max_samples=None):
     """
-    `load train and val data loaders`
+    `load train/val data loaders and classes`
 
     Args:
         root (string): Root directory of the Pascal Part Dataset. Must contain the fololowing dir structure:
@@ -177,6 +177,8 @@ def load_data(root, batch_size, train_split='train', val_split='val', classes_fi
     train_dataset = PascalPartVOCDetection(root, train_split, get_transforms(is_train=True), classes_file=classes_file, use_objects=use_objects, use_parts=use_parts)
     val_dataset = PascalPartVOCDetection(root, val_split, get_transforms(is_train=False), classes_file=classes_file, use_objects=use_objects, use_parts=use_parts)
 
+    classes = train_dataset.classes
+
     if max_samples is not None:
         train_dataset = torch.utils.data.Subset(train_dataset, np.arange(max_samples))
         val_dataset = torch.utils.data.Subset(val_dataset, np.arange(max_samples))
@@ -186,4 +188,4 @@ def load_data(root, batch_size, train_split='train', val_split='val', classes_fi
 
     print('Number of Samples --> Train:%d\t Val:%d\t' %(len(train_dataset), len(val_dataset)))
 
-    return train_loader, val_loader
+    return train_loader, val_loader, classes

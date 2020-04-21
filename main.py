@@ -47,10 +47,8 @@ LEARNING_RATE = args.learning_rate
 BATCH_SIZE = args.batch_size
 WEIGHT_DECAY = args.weight_decay
 
-train_loader, val_loader = load_data(DATA_DIR, BATCH_SIZE, TRAIN_SPLIT, VAL_SPLIT, CLASSES_FILE, USE_OBJECTS,
-                                     USE_PARTS, NUM_WORKERS, MAX_SAMPLES)
-
-classes = train_loader.dataset.classes
+train_loader, val_loader, classes = load_data(DATA_DIR, BATCH_SIZE, TRAIN_SPLIT, VAL_SPLIT, CLASSES_FILE, USE_OBJECTS,
+                                              USE_PARTS, NUM_WORKERS, MAX_SAMPLES)
 n_classes = len(classes) # background class should also be counted!
 
 model = get_FasterRCNN_model(n_classes).to(device)
@@ -62,8 +60,8 @@ params = [p for p in model.parameters() if p.requires_grad]
 optimizer = torch.optim.SGD(params, lr=LEARNING_RATE, momentum=0.9, weight_decay=WEIGHT_DECAY)
 
 for epoch in range(N_EPOCHS):
-    train_one_epoch(model, optimizer, train_loader, device, epoch, print_freq=1000)
-    evaluate(model, val_loader, device=device, print_freq=10000)
+    train_one_epoch(model, optimizer, train_loader, device, epoch, print_freq=500)
+    evaluate(model, val_loader, device=device, print_freq=10000, header='Val:')
 
     ## TODO: Check if improvement, then only overwrite saved model
     torch.save(model.state_dict(), model_save_path)
