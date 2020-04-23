@@ -1,6 +1,5 @@
 __background__ 0
-body 1
-cap 2
-plant 3
-pot 4
-screen 5
+BODY 1
+PLANT 2
+POT 3
+SCREEN 4

@@ -1,6 +1,0 @@
-__background__ __background__
-body BODY
-cap BOTTLE_CAP
-plant POTTEDPLANT_PLANT
-pot POTTEDPLANT_POT
-screen TVMONITOR_SCREEN
