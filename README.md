@@ -34,7 +34,6 @@ data
 Before Merging Part Classes|After merging Part Classes
 :-------------------------:|:-------------------------:
 ![](https://github.com/kevalmorabia97/Object-and-Semantic-Part-Detection-pyTorch/blob/master/data/VOCdevkit/VOC2010/example_merged_part_images/2008_000217_allparts.jpg)  |  ![](https://github.com/kevalmorabia97/Object-and-Semantic-Part-Detection-pyTorch/blob/master/data/VOCdevkit/VOC2010/example_merged_part_images/2008_000217_mergedparts.jpg)
-:-------------------------:|:-------------------------:
 ![](https://github.com/kevalmorabia97/Object-and-Semantic-Part-Detection-pyTorch/blob/master/data/VOCdevkit/VOC2010/example_merged_part_images/2008_000112_allparts.jpg)  |  ![](https://github.com/kevalmorabia97/Object-and-Semantic-Part-Detection-pyTorch/blob/master/data/VOCdevkit/VOC2010/example_merged_part_images/2008_000112_mergedparts.jpg)
 
 ## Requirements:
