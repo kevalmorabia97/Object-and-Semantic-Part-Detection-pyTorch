@@ -3,7 +3,8 @@ import os
 import numpy as np
 from PIL import Image
 import torch
-import torchvision
+import torch.utils.data as data
+from torchvision.datasets.vision import VisionDataset
 
 from references.detection.transforms import Compose, RandomHorizontalFlip, ToTensor
 from references.detection.utils import collate_fn
@@ -13,7 +14,6 @@ OBJECT_CLASSES = ['__background__', 'person' , 'bird', 'cat', 'cow', 'dog', 'hor
            'aeroplane', 'bicycle', 'boat', 'bus', 'car', 'motorbike', 'train', 'bottle', 'chair',
            'diningtable', 'pottedplant', 'sofa', 'tvmonitor']
 
-## TODO: make classes more coarse grained
 PART_CLASSES = ['__background__', 'backside', 'beak', 'bliplate', 'body', 'bwheel', 'cap',
                 'cbackside_1', 'cbackside_2', 'cfrontside_1', 'cfrontside_2', 'cfrontside_3', 'cfrontside_4', 'cfrontside_5', 'cfrontside_6', 'cfrontside_7', 'cfrontside_9',
                 'chainwheel', 'cleftside_1', 'cleftside_2', 'cleftside_3', 'cleftside_4', 'cleftside_5', 'cleftside_6', 'cleftside_7', 'cleftside_8', 'cleftside_9',
@@ -32,7 +32,7 @@ PART_CLASSES = ['__background__', 'backside', 'beak', 'bliplate', 'body', 'bwhee
                 'window_2', 'window_20', 'window_3', 'window_4', 'window_5', 'window_6', 'window_7', 'window_8', 'window_9']
 
 
-class PascalPartVOCDetection(torchvision.datasets.vision.VisionDataset):
+class PascalPartVOCDetection(VisionDataset):
     """
     `Pascal Part VOC Detection Dataset`
 
@@ -44,49 +44,46 @@ class PascalPartVOCDetection(torchvision.datasets.vision.VisionDataset):
             Images: `root`/JPEGImages/*.jpg
             Object and Part annotations: `root`/Annotations_Part_json/*.json [see `parse_Pascal_VOC_Part_Anno.py`]
             train/val splits: `root`/ImageSets/Main/`image_set`.txt
-            classes_file (if provided): `root`/ImageSets/Main/`classes_file`.txt
+            class2ind_file: `root`/Classes/`class2ind_file`.txt
         image_set (string, optional): Select the image_set to use, e.g. train (default), trainval, val
         transforms (callable, optional): A function/transform that takes input sample and its target as entry
             and returns a transformed version.
         transform (callable, optional): A function/transform that  takes in an PIL image
             and returns a transformed version. E.g, transforms.RandomCrop
         target_transform (callable, required): A function/transform that takes in the target and transforms it.
-        classes_file: file containing list of class names that are to be considered from all annotations. Other object/part classes will be ignored.
-            Default: None i.e. all object/part classes depending on values of `use_objects` and `use_parts`
-            Note: `background` class should also be present
-        use_objects: if True (default), use object annotations
-        use_parts: if True (default), use part annotations that are present inside an object
+        class2ind_file: file containing list of class names and class index that are to be considered from all annotations.
+            Other object/part classes will be ignored.
+            Default: `object_class2ind`.
+            Note: `__background__` class should also be present.
+        use_objects: if True (default=True), use object annotations
+        use_parts: if True (default=False), use part annotations that are present inside an object
     """
-    def __init__(self, root, image_set='train', transforms=None, transform=None, target_transform=None, classes_file=None, use_objects=True, use_parts=True):
+    def __init__(self, root, image_set='train', transforms=None, transform=None, target_transform=None, class2ind_file='object_class2ind',
+                 use_objects=True, use_parts=False):
         super(PascalPartVOCDetection, self).__init__(root, transforms, transform, target_transform)
 
         image_dir = '%s/JPEGImages/' % root
         annotation_dir = '%s/Annotations_Part_json' % root
         splits_file = '%s/ImageSets/Main/%s.txt' % (root, image_set)
+        class2ind_file = '%s/Classes/%s.txt' % (root, class2ind_file)
 
-        if not os.path.isdir(image_dir) or not os.path.isdir(annotation_dir) or not os.path.exists(splits_file):
+        if not os.path.isdir(image_dir) or not os.path.isdir(annotation_dir) or not os.path.exists(splits_file) or not os.path.exists(class2ind_file):
             raise RuntimeError('Dataset not found or corrupted.')
         if not use_objects and not use_parts:
             raise RuntimeError('Atleast 1 of objects and parts have to be used')
         self.use_objects = use_objects
         self.use_parts = use_parts
 
-        if classes_file is None:
-            classes = []
-            if self.use_objects:
-                classes += OBJECT_CLASSES
-            if self.use_parts:
-                classes += PART_CLASSES
-            classes = sorted(list(set(classes)))
-        else:
-            classes = list(np.loadtxt('%s/ImageSets/Main/%s.txt' % (root, classes_file), dtype=str))
-        self.classes = classes
+        class2ind_list = np.loadtxt(class2ind_file, dtype=str) # shape [n_classes, 2]
+        self.class2ind = {k: int(v) for k, v in class2ind_list}
+        self.classes = sorted(self.class2ind.keys())
+        self.n_classes = len(np.unique(list(self.class2ind.values())))
 
         file_names = np.loadtxt(splits_file, dtype=str)
         self.images = ['%s/%s.jpg' % (image_dir, x) for x in file_names]
         self.annotations = ['%s/%s.json' % (annotation_dir, x) for x in file_names]
 
-        print('Use Objects: %s, Use Parts: %s, No. of Classes: %d for %s image set' % (use_objects, use_parts, len(self.classes), image_set))
+        print('Use Objects: %s, Use Parts: %s, No. of Classes: %d for %s image set' % (use_objects, use_parts, self.n_classes, image_set))
 
     def __getitem__(self, index):
         """
@@ -154,38 +151,44 @@ def get_transforms(is_train=False):
     return Compose(transforms)
 
 
-def load_data(root, batch_size, train_split='train', val_split='val', classes_file=None, use_objects=True, use_parts=True, num_workers=0, max_samples=None):
+def load_data(root, batch_size, train_split='train', val_split='val', class2ind_file='object_class2ind', use_objects=True, use_parts=False,
+              num_workers=0, max_samples=None):
     """
-    `load train/val data loaders and classes`
+    `load train/val data loaders and class2ind (dict), n_classes (int)`
 
     Args:
         root (string): Root directory of the Pascal Part Dataset. Must contain the fololowing dir structure:
             Images: `root`/JPEGImages/*.jpg
             Object and Part annotations: `root`/Annotations_Part_json/*.json [see `parse_Pascal_VOC_Part_Anno.py`]
             train/val splits: `root`/ImageSets/Main/`image_set`.txt
-            classes_file (if provided): `root`/ImageSets/Main/`classes_file`.txt
+            class2ind_file: `root`/Classes/`class2ind_file`.txt
         batch_size: batch size for training
         train/val splits: `root`/ImageSets/Main/`image_set`.txt
-        classes_file: file containing list of class names that are to be considered from all annotations. Other object/part classes will be ignored.
-            Default: None i.e. all object/part classes depending on values of `use_objects` and `use_parts`
-            Note: `background` class should also be present
-        use_objects: if True (default), use object annotations
-        use_parts: if True (default), use part annotations that are present inside an object
+        class2ind_file: file containing list of class names and class index that are to be considered from all annotations.
+            Other object/part classes will be ignored.
+            Default: `object_class2ind`.
+            Note: `__background__` class should also be present.
+        use_objects: if True (default=True), use object annotations
+        use_parts: if True (default=False), use part annotations that are present inside an object
         max_samples: maximum number of samples for train/val datasets. (Default: None)
             Can be set to a small number for faster training
     """
-    train_dataset = PascalPartVOCDetection(root, train_split, get_transforms(is_train=True), classes_file=classes_file, use_objects=use_objects, use_parts=use_parts)
-    val_dataset = PascalPartVOCDetection(root, val_split, get_transforms(is_train=False), classes_file=classes_file, use_objects=use_objects, use_parts=use_parts)
+    train_dataset = PascalPartVOCDetection(root, train_split, get_transforms(is_train=True), class2ind_file=class2ind_file,
+                                           use_objects=use_objects, use_parts=use_parts)
+    val_dataset = PascalPartVOCDetection(root, val_split, get_transforms(is_train=False), class2ind_file=class2ind_file,
+                                           use_objects=use_objects, use_parts=use_parts)
 
-    classes = train_dataset.classes
+    class2ind = train_dataset.class2ind
+    n_classes = train_dataset.n_classes
 
     if max_samples is not None:
-        train_dataset = torch.utils.data.Subset(train_dataset, np.arange(max_samples))
-        val_dataset = torch.utils.data.Subset(val_dataset, np.arange(max_samples))
+        train_dataset = data.Subset(train_dataset, np.arange(max_samples))
+        val_dataset = data.Subset(val_dataset, np.arange(max_samples))
 
-    train_loader = torch.utils.data.DataLoader(train_dataset, batch_size=batch_size, shuffle=True, num_workers=num_workers, collate_fn=collate_fn, drop_last=True)
-    val_loader = torch.utils.data.DataLoader(val_dataset, batch_size=1, shuffle=False, num_workers=num_workers, collate_fn=collate_fn)
+    train_loader = data.DataLoader(train_dataset, batch_size=batch_size, shuffle=True, num_workers=num_workers, collate_fn=collate_fn,
+                                   drop_last=True)
+    val_loader = data.DataLoader(val_dataset, batch_size=1, shuffle=False, num_workers=num_workers, collate_fn=collate_fn)
 
-    print('Number of Samples --> Train:%d\t Val:%d\t' %(len(train_dataset), len(val_dataset)))
+    print('Number of Samples --> Train:%d\t Val:%d\t' % (len(train_dataset), len(val_dataset)))
 
-    return train_loader, val_loader, classes
+    return train_loader, val_loader, class2ind, n_classes

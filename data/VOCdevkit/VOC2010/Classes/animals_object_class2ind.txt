@@ -1,0 +1,7 @@
+__background__ 0
+bird 1
+cat 2
+cow 3
+dog 4
+horse 5
+sheep 6

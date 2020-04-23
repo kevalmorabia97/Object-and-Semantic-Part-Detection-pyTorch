@@ -1,0 +1,6 @@
+__background__ 0
+body 1
+cap 2
+plant 3
+pot 4
+screen 5

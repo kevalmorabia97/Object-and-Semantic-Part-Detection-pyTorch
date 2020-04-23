@@ -1,7 +1,0 @@
-__background__
-aeroplane
-bicycle
-bus
-car
-motorbike
-train

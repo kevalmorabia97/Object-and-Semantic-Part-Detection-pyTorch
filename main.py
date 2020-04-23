@@ -15,7 +15,7 @@ parser.add_argument('-d', '--device', type=int, default=0)
 parser.add_argument('-dir', '--data_dir', type=str, default='data/VOCdevkit/VOC2010/')
 parser.add_argument('-tr', '--train_split', type=str, default='train')
 parser.add_argument('-val', '--val_split', type=str, default='val')
-parser.add_argument('-cf', '--classes_file', type=str, default='object_classes')
+parser.add_argument('-cf', '--class2ind_file', type=str, default='object_class2ind')
 parser.add_argument('-e', '--n_epochs', type=int, default=100)
 parser.add_argument('-lr', '--learning_rate', type=float, default=1e-4)
 parser.add_argument('-bs', '--batch_size', type=int, default=1)
@@ -33,12 +33,15 @@ set_all_seeds(123)
 DATA_DIR = args.data_dir
 TRAIN_SPLIT = args.train_split
 VAL_SPLIT = args.val_split
-CLASSES_FILE = args.classes_file if not args.classes_file == '' else None
+CLASS2IND_FILE = args.class2ind_file
 N_EPOCHS = args.n_epochs
 USE_OBJECTS = bool(args.use_objects)
 USE_PARTS = bool(args.use_parts)
 NUM_WORKERS = args.num_workers
 MAX_SAMPLES = args.max_samples if args.max_samples > 0 else None
+
+if USE_OBJECTS and USE_PARTS:
+    print('[WARNING]: If you are doing Object and Part Detection, make sure you are using the class2ind file that has both classes')
 
 model_save_path = 'saved_model_%s.pth' % (TRAIN_SPLIT)
 
@@ -47,9 +50,8 @@ LEARNING_RATE = args.learning_rate
 BATCH_SIZE = args.batch_size
 WEIGHT_DECAY = args.weight_decay
 
-train_loader, val_loader, classes = load_data(DATA_DIR, BATCH_SIZE, TRAIN_SPLIT, VAL_SPLIT, CLASSES_FILE, USE_OBJECTS,
-                                              USE_PARTS, NUM_WORKERS, MAX_SAMPLES)
-n_classes = len(classes) # background class should also be counted!
+train_loader, val_loader, class2ind, n_classes = load_data(DATA_DIR, BATCH_SIZE, TRAIN_SPLIT, VAL_SPLIT, CLASS2IND_FILE,
+                                                           USE_OBJECTS, USE_PARTS, NUM_WORKERS, MAX_SAMPLES)
 
 model = get_FasterRCNN_model(n_classes).to(device)
 if os.path.exists(model_save_path):

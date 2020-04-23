@@ -1,0 +1,4 @@
+__background__ 0
+bottle 1
+pottedplant 2
+tvmonitor 3
