@@ -1,0 +1,1 @@
+This directory contains various files for training on different sets of object/part classes

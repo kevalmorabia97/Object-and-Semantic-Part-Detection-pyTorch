@@ -8,6 +8,8 @@ Joint detection of Object and its Semantic parts using Faster RCNN model.
 <br>Our goal is to show that having part information can improve object detection performance, and vice versa.
 <br>Some classes e.g. ```boat``` do not have part annotations. So we discard them from our ```vehicles_train/val.txt``` file.
 <br>Some images don't have part annotations for any objects. So we discard them from our corresponding ```train/val.txt``` file.
+<br>All the above kinds of removed images were about 0.5% only.
+<br>No images have been removed from combined train/val/trainval files. They are only removed from animals/indoor/person/vehicles train/val files. So running the part detection model on entire dataset for all classes would result in lots of samples where there will be no annotations.
 ```
 Directory structure for data is as follows:
 

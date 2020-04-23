@@ -76,7 +76,7 @@ class PascalPartVOCDetection(VisionDataset):
 
         class2ind_list = np.loadtxt(class2ind_file, dtype=str) # shape [n_classes, 2]
         self.class2ind = {k: int(v) for k, v in class2ind_list}
-        self.classes = sorted(self.class2ind.keys())
+        self.classes = set(self.class2ind.keys())
         self.n_classes = len(np.unique(list(self.class2ind.values())))
 
         file_names = np.loadtxt(splits_file, dtype=str)
@@ -124,7 +124,7 @@ class PascalPartVOCDetection(VisionDataset):
                     xmax = obj['bndbox']['xmax']
                     ymax = obj['bndbox']['ymax']
                     boxes.append([xmin, ymin, xmax, ymax]) 
-                    labels.append(self.classes.index(obj['name']))
+                    labels.append(self.class2ind[obj['name']])
                     iscrowd.append(False)
             if self.use_parts:
                 for part in obj['parts']:
@@ -134,7 +134,7 @@ class PascalPartVOCDetection(VisionDataset):
                         xmax = part['bndbox']['xmax']
                         ymax = part['bndbox']['ymax']
                         boxes.append([xmin, ymin, xmax, ymax])
-                        labels.append(self.classes.index(part['name']))
+                        labels.append(self.class2ind[part['name']])
                         iscrowd.append(False)
         
         return boxes, labels, iscrowd
