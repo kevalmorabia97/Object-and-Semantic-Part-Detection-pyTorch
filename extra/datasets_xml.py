@@ -1,41 +1,32 @@
 # adapted from:
 # https://github.com/pytorch/vision/blob/master/torchvision/datasets/voc.py
-# https://github.com/jeremyfix/deeplearning-lectures/blob/master/LabsSolutions/01-pytorch-object-detection/data.py
 
 
 import os
-import tarfile
 import collections
+import numpy as np
 from PIL import Image
 import torch
-import torchvision
+import torch.utils.data as data
+from torchvision.datasets.vision import VisionDataset
 import xml.etree.ElementTree as ET
 
 from references.detection.transforms import Compose, RandomHorizontalFlip, ToTensor
+from references.detection.utils import collate_fn
 
 
-DATASET_YEAR_DICT = {
-    '2010': {
-        'url': 'http://host.robots.ox.ac.uk/pascal/VOC/voc2010/VOCtrainval_03-May-2010.tar',
-        'filename': 'VOCtrainval_03-May-2010.tar',
-        'md5': 'da459979d0c395079b5c75ee67908abb',
-        'base_dir': os.path.join('VOCdevkit', 'VOC2010')
-    }
-}
-
-
-OBJECT_CLASSES = ['__background__', 'person' , 'bird', 'cat', 'cow', 'dog', 'horse', 'sheep', 'aeroplane',
+CLASSES = ['__background__', 'person' , 'bird', 'cat', 'cow', 'dog', 'horse', 'sheep', 'aeroplane',
            'bicycle', 'boat', 'bus', 'car', 'motorbike', 'train', 'bottle', 'chair',
            'diningtable', 'pottedplant', 'sofa', 'tvmonitor']
 
-PART_CLASSES = []
 
-
-class VOCDetection(torchvision.datasets.vision.VisionDataset):
+class VOCDetection(VisionDataset):
     """`Pascal VOC <http://host.robots.ox.ac.uk/pascal/VOC/>`_ Detection Dataset.
     Args:
-        root (string): Root directory of the VOC Dataset.
-        year (string, optional): The dataset year, supports years 2007 to 2012.
+        root (string): Root directory of the VOC Dataset. Must contain the fololowing dir structure:
+            Images: `root`/JPEGImages/*.jpg
+            annotations: `root`/Annotations/*.xml
+            train/val splits: `root`/ImageSets/Main/`image_set`.txt
         image_set (string, optional): Select the image_set to use, ``train``, ``trainval`` or ``val``
         transform (callable, optional): A function/transform that  takes in an PIL image
             and returns a transformed version. E.g, ``transforms.RandomCrop``
@@ -44,26 +35,23 @@ class VOCDetection(torchvision.datasets.vision.VisionDataset):
         transforms (callable, optional): A function/transform that takes input sample and its target as entry
             and returns a transformed version.
     """
-    def __init__(self, root, year='2010', image_set='train', transform=None, target_transform=None, transforms=None):
+    def __init__(self, root, image_set='train', transforms=None, transform=None, target_transform=None):
         super(VOCDetection, self).__init__(root, transforms, transform, target_transform)
 
-        base_dir = DATASET_YEAR_DICT[year]['base_dir']
-        voc_root = os.path.join(self.root, base_dir)
-        image_dir = os.path.join(voc_root, 'JPEGImages')
-        annotation_dir = os.path.join(voc_root, 'Annotations')
+        image_dir = '%s/JPEGImages/' % root
+        annotation_dir = '%s/Annotations' % root
+        splits_file = '%s/ImageSets/Main/%s.txt' % (root, image_set)
 
-        if not os.path.isdir(voc_root):
+        if not os.path.isdir(image_dir) or not os.path.isdir(annotation_dir) or not os.path.exists(splits_file):
             raise RuntimeError('Dataset not found or corrupted.')
+        
+        self.classes = CLASSES
+        self.n_classes = len(self.classes)
+        self.class2ind = {c: idx for c, idx in zip(CLASSES, range(self.n_classes))}
 
-        splits_dir = os.path.join(voc_root, 'ImageSets/Main')
-        split_f = os.path.join(splits_dir, image_set.rstrip('\n') + '.txt')
-
-        with open(os.path.join(split_f), 'r') as f:
-            file_names = [x.strip() for x in f.readlines()]
-
-        self.images = [os.path.join(image_dir, x + '.jpg') for x in file_names]
-        self.annotations = [os.path.join(annotation_dir, x + '.xml') for x in file_names]
-        assert (len(self.images) == len(self.annotations))
+        file_names = np.loadtxt(splits_file, dtype=str)
+        self.images = ['%s/%s.jpg' % (image_dir, x) for x in file_names]
+        self.annotations = ['%s/%s.xml' % (annotation_dir, x) for x in file_names]
 
     def __getitem__(self, index):
         """
@@ -80,12 +68,12 @@ class VOCDetection(torchvision.datasets.vision.VisionDataset):
         if not isinstance(target['annotation']['object'], list):
             target['annotation']['object'] = [target['annotation']['object']]
         for obj in target['annotation']['object']:
-            xmin = int(obj['bndbox']['xmin'])
-            ymin = int(obj['bndbox']['ymin'])
-            xmax = int(obj['bndbox']['xmax'])
-            ymax = int(obj['bndbox']['ymax'])
+            xmin = int(obj['bndbox']['xmin']) - 1
+            ymin = int(obj['bndbox']['ymin']) - 1
+            xmax = int(obj['bndbox']['xmax']) - 1
+            ymax = int(obj['bndbox']['ymax']) - 1
             boxes.append([xmin, ymin, xmax, ymax])    
-            labels.append(OBJECT_CLASSES.index(obj['name']))
+            labels.append(self.class2ind[obj['name']])
             iscrowd.append(bool(int(obj['difficult'])))
         
         boxes = torch.Tensor(boxes)
@@ -127,9 +115,42 @@ class VOCDetection(torchvision.datasets.vision.VisionDataset):
         return voc_dict
 
 
-def get_transform(is_train):
+def get_transforms(is_train=False):
     transforms = [ToTensor()]
     if is_train:
         transforms.append(RandomHorizontalFlip(0.5))
     
     return Compose(transforms)
+
+
+def load_data(root, batch_size, train_split='train', val_split='val', num_workers=0, max_samples=None):
+    """
+    `load train/val data loaders and class2ind (dict), n_classes (int)`
+
+    Args:
+        root (string): Root directory of the VOC Dataset. Must contain the fololowing dir structure:
+            Images: `root`/JPEGImages/*.jpg
+            annotations: `root`/Annotations/*.xml
+            train/val splits: `root`/ImageSets/Main/`image_set`.txt
+        batch_size: batch size for training
+        train/val splits: `root`/ImageSets/Main/`image_set`.txt
+        max_samples: maximum number of samples for train/val datasets. (Default: None)
+            Can be set to a small number for faster training
+    """
+    train_dataset = VOCDetection(root, train_split, get_transforms(is_train=True))
+    val_dataset = VOCDetection(root, val_split, get_transforms(is_train=False))
+
+    class2ind = train_dataset.class2ind
+    n_classes = train_dataset.n_classes
+
+    if max_samples is not None:
+        train_dataset = data.Subset(train_dataset, np.arange(max_samples))
+        val_dataset = data.Subset(val_dataset, np.arange(max_samples))
+
+    train_loader = data.DataLoader(train_dataset, batch_size=batch_size, shuffle=True, num_workers=num_workers, collate_fn=collate_fn,
+                                   drop_last=True)
+    val_loader = data.DataLoader(val_dataset, batch_size=1, shuffle=False, num_workers=num_workers, collate_fn=collate_fn)
+
+    print('Number of Samples --> Train:%d\t Val:%d\t' % (len(train_dataset), len(val_dataset)))
+
+    return train_loader, val_loader, class2ind, n_classes

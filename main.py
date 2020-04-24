@@ -4,6 +4,7 @@ import os
 import torch
 
 from datasets import load_data
+# from extra.datasets_xml import load_data
 from models import get_FasterRCNN_model
 from references.detection.engine import train_one_epoch, evaluate
 from utils import set_all_seeds
@@ -16,8 +17,8 @@ parser.add_argument('-dir', '--data_dir', type=str, default='data/VOCdevkit/VOC2
 parser.add_argument('-tr', '--train_split', type=str, default='train')
 parser.add_argument('-val', '--val_split', type=str, default='val')
 parser.add_argument('-cf', '--class2ind_file', type=str, default='object_class2ind')
-parser.add_argument('-e', '--n_epochs', type=int, default=100)
-parser.add_argument('-lr', '--learning_rate', type=float, default=1e-4)
+parser.add_argument('-e', '--n_epochs', type=int, default=30)
+parser.add_argument('-lr', '--learning_rate', type=float, default=1e-3)
 parser.add_argument('-bs', '--batch_size', type=int, default=1)
 parser.add_argument('-wd', '--weight_decay', type=float, default=1e-6)
 parser.add_argument('--use_objects', dest='use_objects', action='store_true')
@@ -52,30 +53,37 @@ WEIGHT_DECAY = args.weight_decay
 
 train_loader, val_loader, class2ind, n_classes = load_data(DATA_DIR, BATCH_SIZE, TRAIN_SPLIT, VAL_SPLIT, CLASS2IND_FILE,
                                                            USE_OBJECTS, USE_PARTS, NUM_WORKERS, MAX_SAMPLES)
+# train_loader, val_loader, class2ind, n_classes = load_data(DATA_DIR, BATCH_SIZE, TRAIN_SPLIT, VAL_SPLIT, NUM_WORKERS, MAX_SAMPLES)
 
 model = get_FasterRCNN_model(n_classes).to(device)
+
+params = [p for p in model.parameters() if p.requires_grad]
+optimizer = torch.optim.SGD(params, lr=LEARNING_RATE, momentum=0.9, weight_decay=WEIGHT_DECAY)
+lr_scheduler = torch.optim.lr_scheduler.StepLR(optimizer, step_size=5, gamma=0.1)
+
+start_epoch = 0
+best_val_mAP = 0.
 if os.path.exists(model_save_path):
     print('Restoring trained model from %s' % model_save_path)
     checkpoint = torch.load(model_save_path)
     model.load_state_dict(checkpoint['model'])
+    lr_scheduler.load_state_dict(checkpoint['lr_scheduler'])
+    optimizer.load_state_dict(checkpoint['optimizer'])
     start_epoch = checkpoint['epoch']+1
     best_val_mAP = checkpoint['mAP']
-else:
-    start_epoch = 0
-    best_val_mAP = 0.
-
-params = [p for p in model.parameters() if p.requires_grad]
-optimizer = torch.optim.SGD(params, lr=LEARNING_RATE, momentum=0.9, weight_decay=WEIGHT_DECAY)
 
 for epoch in range(start_epoch, start_epoch + N_EPOCHS):
     train_one_epoch(model, optimizer, train_loader, device, epoch, print_freq=500)
-    _, stats = evaluate(model, val_loader, device=device, print_freq=10000, header='Val:')
+    _, stats = evaluate(model, val_loader, device=device, print_freq=1000, header='Val:')
+    lr_scheduler.step()
 
-    val_mAP = stats['bbox'][0]
+    val_mAP = stats['bbox'][1] # AP @ IoU=0.5
     if val_mAP > best_val_mAP:
         best_val_mAP = val_mAP
-        checkpoint = {'model': model.state_dict(), 'epoch': epoch, 'mAP': val_mAP}
+        checkpoint = {'model': model.state_dict(), 'optimizer' : optimizer.state_dict(), 'lr_scheduler': lr_scheduler.state_dict(),
+                      'epoch': epoch, 'mAP': val_mAP}
         torch.save(checkpoint, model_save_path)
+    
     print('-'*100)
 
 print('Best val_mAP: %.4f' % best_val_mAP)
