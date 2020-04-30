@@ -51,8 +51,8 @@ LEARNING_RATE = args.learning_rate
 BATCH_SIZE = args.batch_size
 WEIGHT_DECAY = args.weight_decay
 
-train_loader, val_loader, class2ind, n_classes = load_data(DATA_DIR, BATCH_SIZE, TRAIN_SPLIT, VAL_SPLIT, CLASS2IND_FILE,
-                                                           USE_OBJECTS, USE_PARTS, NUM_WORKERS, MAX_SAMPLES)
+train_loader, val_loader, class2ind, n_classes = load_data(DATA_DIR, BATCH_SIZE, TRAIN_SPLIT, VAL_SPLIT, CLASS2IND_FILE, USE_OBJECTS,
+                                                           USE_PARTS, False, None, NUM_WORKERS, MAX_SAMPLES)
 # train_loader, val_loader, class2ind, n_classes = load_data(DATA_DIR, BATCH_SIZE, TRAIN_SPLIT, VAL_SPLIT, NUM_WORKERS, MAX_SAMPLES)
 
 model = get_FasterRCNN_model(n_classes).to(device)
@@ -65,7 +65,7 @@ start_epoch = 0
 best_val_mAP = 0.
 if os.path.exists(model_save_path):
     print('Restoring trained model from %s' % model_save_path)
-    checkpoint = torch.load(model_save_path)
+    checkpoint = torch.load(model_save_path, map_location=device)
     model.load_state_dict(checkpoint['model'])
     lr_scheduler.load_state_dict(checkpoint['lr_scheduler'])
     optimizer.load_state_dict(checkpoint['optimizer'])

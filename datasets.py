@@ -6,30 +6,12 @@ import torch
 import torch.utils.data as data
 from torchvision.datasets.vision import VisionDataset
 
-from references.detection.transforms import Compose, RandomHorizontalFlip, ToTensor
-from references.detection.utils import collate_fn
+from transforms import get_transforms
 
 
 OBJECT_CLASSES = ['__background__', 'person' , 'bird', 'cat', 'cow', 'dog', 'horse', 'sheep',
            'aeroplane', 'bicycle', 'boat', 'bus', 'car', 'motorbike', 'train', 'bottle', 'chair',
            'diningtable', 'pottedplant', 'sofa', 'tvmonitor']
-
-PART_CLASSES = ['__background__', 'backside', 'beak', 'bliplate', 'body', 'bwheel', 'cap',
-                'cbackside_1', 'cbackside_2', 'cfrontside_1', 'cfrontside_2', 'cfrontside_3', 'cfrontside_4', 'cfrontside_5', 'cfrontside_6', 'cfrontside_7', 'cfrontside_9',
-                'chainwheel', 'cleftside_1', 'cleftside_2', 'cleftside_3', 'cleftside_4', 'cleftside_5', 'cleftside_6', 'cleftside_7', 'cleftside_8', 'cleftside_9',
-                'coach_1', 'coach_2', 'coach_3', 'coach_4', 'coach_5', 'coach_6', 'coach_7', 'coach_8', 'coach_9',
-                'crightside_1', 'crightside_2', 'crightside_3', 'crightside_4', 'crightside_5', 'crightside_6', 'crightside_7', 'crightside_8',
-                'croofside_1', 'croofside_2', 'croofside_3', 'croofside_4', 'croofside_5',
-                'door_1', 'door_2', 'door_3', 'door_4', 'engine_1', 'engine_2', 'engine_3', 'engine_4', 'engine_5', 'engine_6',
-                'fliplate', 'frontside', 'fwheel', 'hair', 'handlebar', 'hbackside', 'head', 'headlight_1',
-                'headlight_2', 'headlight_3', 'headlight_4', 'headlight_5', 'headlight_6', 'headlight_7', 'headlight_8', 'hfrontside', 'hleftside', 'hrightside', 'hroofside',
-                'lbho', 'lbleg', 'lblleg', 'lbpa', 'lbuleg', 'lear', 'lebrow', 'leftmirror', 'leftside', 'leye', 'lfho', 'lfleg', 'lflleg', 'lfoot', 'lfpa', 'lfuleg', 'lhand',
-                'lhorn', 'llarm', 'lleg', 'llleg', 'luarm', 'luleg', 'lwing', 'mouth', 'muzzle', 'neck', 'nose', 'plant', 'pot',
-                'rbho', 'rbleg', 'rblleg', 'rbpa', 'rbuleg', 'rear', 'rebrow', 'reye', 'rfho', 'rfleg', 'rflleg', 'rfoot', 'rfpa', 'rfuleg', 'rhand', 'rhorn', 'rightmirror', 'rightside', 'rlarm', 'rleg', 'rlleg',
-                'roofside', 'ruarm', 'ruleg', 'rwing', 'saddle', 'screen', 'stern', 'tail', 'torso',
-                'wheel_1', 'wheel_2', 'wheel_3', 'wheel_4', 'wheel_5', 'wheel_6', 'wheel_7', 'wheel_8',
-                'window_1', 'window_10', 'window_11', 'window_12', 'window_13', 'window_14', 'window_15', 'window_16', 'window_17', 'window_18', 'window_19',
-                'window_2', 'window_20', 'window_3', 'window_4', 'window_5', 'window_6', 'window_7', 'window_8', 'window_9']
 
 
 class PascalPartVOCDetection(VisionDataset):
@@ -55,11 +37,15 @@ class PascalPartVOCDetection(VisionDataset):
             Other object/part classes will be ignored.
             Default: `object_class2ind`.
             Note: `__background__` class should also be present.
-        use_objects: if True (default=True), use object annotations
-        use_parts: if True (default=False), use part annotations that are present inside an object
+        use_objects: if True (default: True), use object annotations.
+        use_parts: if True (default: False), use part annotations that are present inside an object.
+        return_separate_targets: if True, return img, obj_target, part_target instead of img, target (default: False)
+            should be set True only for training JointDetector.
+        part_class2ind_file: similar to `class2ind_file` but will have part classes (default: None).
+            should be provided only if return_separate_targets=True otherwise should be provided as `class2ind_file`.
     """
     def __init__(self, root, image_set='train', transforms=None, transform=None, target_transform=None, class2ind_file='object_class2ind',
-                 use_objects=True, use_parts=False):
+                 use_objects=True, use_parts=False, return_separate_targets=False, part_class2ind_file=None):
         super(PascalPartVOCDetection, self).__init__(root, transforms, transform, target_transform)
 
         image_dir = '%s/JPEGImages/' % root
@@ -73,17 +59,31 @@ class PascalPartVOCDetection(VisionDataset):
             raise RuntimeError('Atleast 1 of objects and parts have to be used')
         self.use_objects = use_objects
         self.use_parts = use_parts
+        self.return_separate_targets = return_separate_targets
 
         class2ind_list = np.loadtxt(class2ind_file, dtype=str) # shape [n_classes, 2]
         self.class2ind = {k: int(v) for k, v in class2ind_list}
         self.classes = set(self.class2ind.keys())
         self.n_classes = len(np.unique(list(self.class2ind.values())))
 
+        if self.return_separate_targets:
+            part_class2ind_file = '%s/Classes/%s.txt' % (root, part_class2ind_file)
+            if not os.path.exists(part_class2ind_file):
+                raise RuntimeError('For separate targets, class2ind_file is for objects and part_class2ind_file is for parts')
+            class2ind_part_list = np.loadtxt(part_class2ind_file, dtype=str) # shape [n_classes, 2]
+            self.part_class2ind = {k: int(v) for k, v in class2ind_part_list}
+            self.part_classes = set(self.part_class2ind.keys())
+            self.part_n_classes = len(np.unique(list(self.part_class2ind.values())))
+        else:
+            self.part_class2ind = self.class2ind
+            self.part_classes = self.classes
+
         file_names = np.loadtxt(splits_file, dtype=str)
         self.images = ['%s/%s.jpg' % (image_dir, x) for x in file_names]
         self.annotations = ['%s/%s.json' % (annotation_dir, x) for x in file_names]
 
-        print('Use Objects: %s, Use Parts: %s, No. of Classes: %d for %s image set' % (use_objects, use_parts, self.n_classes, image_set))
+        print('Image Set: %s,  Samples: %d, Objects: %s, Parts: %s, separate_targets: %s' % (image_set, len(self.images), use_objects, use_parts,
+                                                                                             self.return_separate_targets))
 
     def __getitem__(self, index):
         """
@@ -91,31 +91,54 @@ class PascalPartVOCDetection(VisionDataset):
             index (int): Index
         Returns:
             tuple: (image, target) where target is a dictionary
+                if return_separate_targets=True, returns (image, obj_target, part_target)
         """
         img = Image.open(self.images[index]).convert('RGB')
-        boxes, labels, iscrowd = self.parse_json_annotation(self.annotations[index])
+
+        if self.return_separate_targets:
+            boxes, labels, iscrowd, part_boxes, part_labels, part_iscrowd = self.parse_json_annotation(self.annotations[index])
+        else:
+            boxes, labels, iscrowd = self.parse_json_annotation(self.annotations[index])
         
-        if boxes == []:
+        if boxes == [] or (self.return_separate_targets and part_boxes == []):
             print('%s doesnt have any given objects/parts. Returning next image' % self.images[index])
             return self.__getitem__((index+1) % self.__len__())
-        boxes = torch.Tensor(boxes)
         
+        boxes = torch.Tensor(boxes)
         target = {}
         target['boxes'] = boxes
         target['labels'] = torch.LongTensor(labels)
         target['image_id'] = torch.tensor([index])
         target['area'] = (boxes[:, 3] - boxes[:, 1]) * (boxes[:, 2] - boxes[:, 0])
         target['iscrowd'] = torch.BoolTensor(iscrowd)
-        
+
+        if self.return_separate_targets:
+            part_boxes = torch.Tensor(part_boxes)
+            part_target = {}
+            part_target['boxes'] = part_boxes
+            part_target['labels'] = torch.LongTensor(part_labels)
+            part_target['image_id'] = torch.tensor([index])
+            part_target['area'] = (part_boxes[:, 3] - part_boxes[:, 1]) * (part_boxes[:, 2] - part_boxes[:, 0])
+            part_target['iscrowd'] = torch.BoolTensor(part_iscrowd)
+
+            if self.transforms is not None:
+                img, target, part_target = self.transforms(img, target, part_target)
+            return img, target, part_target
+
+        # if use_parts=True, parts will also be present in target
         if self.transforms is not None:
             img, target = self.transforms(img, target)
-
         return img, target
 
     def parse_json_annotation(self, file_path):
         target = json.load(open(file_path, 'r'))
         
         boxes, labels, iscrowd = [], [], []
+        if self.return_separate_targets:
+            part_boxes, part_labels, part_iscrowd = [], [], []
+        else:
+            part_boxes, part_labels, part_iscrowd = boxes, labels, iscrowd
+        
         for obj in target['object']:
             if self.use_objects:
                 if obj['name'] in self.classes: # ignore objects not in given list of classes
@@ -128,31 +151,29 @@ class PascalPartVOCDetection(VisionDataset):
                     iscrowd.append(False)
             if self.use_parts:
                 for part in obj['parts']:
-                    if part['name'] in self.classes: # ignore parts not in given list of classes
+                    if part['name'] in self.part_classes: # ignore parts not in given list of classes
                         xmin = part['bndbox']['xmin']
                         ymin = part['bndbox']['ymin']
                         xmax = part['bndbox']['xmax']
                         ymax = part['bndbox']['ymax']
-                        boxes.append([xmin, ymin, xmax, ymax])
-                        labels.append(self.class2ind[part['name']])
-                        iscrowd.append(False)
+                        part_boxes.append([xmin, ymin, xmax, ymax])
+                        part_labels.append(self.part_class2ind[part['name']])
+                        part_iscrowd.append(False)
         
+        if self.return_separate_targets:
+            return boxes, labels, iscrowd, part_boxes, part_labels, part_iscrowd
         return boxes, labels, iscrowd
 
     def __len__(self):
         return len(self.images)
 
 
-def get_transforms(is_train=False):
-    transforms = [ToTensor()]
-    if is_train:
-        transforms.append(RandomHorizontalFlip(0.5))
-    
-    return Compose(transforms)
+def collate_fn(batch):
+    return tuple(zip(*batch))
 
 
 def load_data(root, batch_size, train_split='train', val_split='val', class2ind_file='object_class2ind', use_objects=True, use_parts=False,
-              num_workers=0, max_samples=None):
+              return_separate_targets=False, part_class2ind_file=None, num_workers=0, max_samples=None):
     """
     `load train/val data loaders and class2ind (dict), n_classes (int)`
 
@@ -170,16 +191,24 @@ def load_data(root, batch_size, train_split='train', val_split='val', class2ind_
             Note: `__background__` class should also be present.
         use_objects: if True (default=True), use object annotations
         use_parts: if True (default=False), use part annotations that are present inside an object
+        return_separate_targets: if True, return img, obj_target, part_target instead of img, target (default: False)
+            should be set True only for training JointDetector
+        part_class2ind_file: similar to `class2ind_file` but will have part classes (default: None).
+            should be provided only if return_separate_targets=True otherwise should be provided as `class2ind_file`.
         max_samples: maximum number of samples for train/val datasets. (Default: None)
             Can be set to a small number for faster training
     """
-    train_dataset = PascalPartVOCDetection(root, train_split, get_transforms(is_train=True), class2ind_file=class2ind_file,
-                                           use_objects=use_objects, use_parts=use_parts)
-    val_dataset = PascalPartVOCDetection(root, val_split, get_transforms(is_train=False), class2ind_file=class2ind_file,
-                                           use_objects=use_objects, use_parts=use_parts)
+    train_dataset = PascalPartVOCDetection(root, train_split, get_transforms(is_train=True), class2ind_file=class2ind_file, use_objects=use_objects,
+                                           use_parts=use_parts, return_separate_targets=return_separate_targets, part_class2ind_file=part_class2ind_file)
+    val_dataset = PascalPartVOCDetection(root, val_split, get_transforms(is_train=False), class2ind_file=class2ind_file, use_objects=use_objects,
+                                           use_parts=use_parts, return_separate_targets=return_separate_targets, part_class2ind_file=part_class2ind_file)
 
     class2ind = train_dataset.class2ind
     n_classes = train_dataset.n_classes
+
+    if return_separate_targets:
+        part_class2ind = train_dataset.part_class2ind
+        part_n_classes = train_dataset.part_n_classes
 
     if max_samples is not None:
         train_dataset = data.Subset(train_dataset, np.arange(max_samples))
@@ -189,6 +218,6 @@ def load_data(root, batch_size, train_split='train', val_split='val', class2ind_
                                    drop_last=True)
     val_loader = data.DataLoader(val_dataset, batch_size=1, shuffle=False, num_workers=num_workers, collate_fn=collate_fn)
 
-    print('Number of Samples --> Train:%d\t Val:%d\t' % (len(train_dataset), len(val_dataset)))
-
+    if return_separate_targets:
+        return train_loader, val_loader, class2ind, n_classes, part_class2ind, part_n_classes
     return train_loader, val_loader, class2ind, n_classes
