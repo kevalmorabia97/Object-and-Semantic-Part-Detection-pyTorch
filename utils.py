@@ -6,13 +6,6 @@ from pycocotools import mask as coco_mask
 from pycocotools.coco import COCO
 
 
-def set_all_seeds(seed=123):
-    random.seed(seed)
-    np.random.seed(seed)
-    torch.manual_seed(seed)
-    torch.cuda.manual_seed(seed)
-
-
 def convert_to_coco_api_obj_part(ds):
     """
     get obj/part_coco_dset (COCO) datasets from data in `ds` dataset (image, obj_target, part_target)
@@ -22,6 +15,7 @@ def convert_to_coco_api_obj_part(ds):
     obj_dataset = {'images': [], 'categories': [], 'annotations': []}
     part_dataset = {'images': [], 'categories': [], 'annotations': []}
     obj_categories, part_categories = set(), set()
+    obj_ann_id, part_ann_id = 1, 1 # annotation IDs need to start at 1, not 0, see torchvision issue #1530
     for img_idx in range(len(ds)):
         # find better way to get target e.g. targets = ds.get_annotations(img_idx)
         img, obj_targets, part_targets = ds[img_idx]
@@ -55,9 +49,8 @@ def convert_to_coco_api_obj_part(ds):
             part_keypoints = part_targets['keypoints']
             part_keypoints = part_keypoints.reshape(part_keypoints.shape[0], -1).tolist()
         
-        # annotation IDs need to start at 1, not 0, see torchvision issue #1530
         for i in range(len(obj_bboxes)):
-            ann = {'id': i+1, 'image_id': image_id, 'bbox': obj_bboxes[i], 'category_id': obj_labels[i], 'area': obj_areas[i], 'iscrowd': obj_iscrowd[i]}
+            ann = {'id': obj_ann_id, 'image_id': image_id, 'bbox': obj_bboxes[i], 'category_id': obj_labels[i], 'area': obj_areas[i], 'iscrowd': obj_iscrowd[i]}
             obj_categories.add(obj_labels[i])
             if 'masks' in obj_targets:
                 ann['segmentation'] = coco_mask.encode(obj_masks[i].numpy())
@@ -65,10 +58,10 @@ def convert_to_coco_api_obj_part(ds):
                 ann['keypoints'] = obj_keypoints[i]
                 ann['num_keypoints'] = sum(k != 0 for k in obj_keypoints[i][2::3])
             obj_dataset['annotations'].append(ann)
+            obj_ann_id += 1
         
-        # annotation IDs need to start at 1, not 0, see torchvision issue #1530
         for i in range(len(part_bboxes)):
-            ann = {'id': i+1, 'image_id': image_id, 'bbox': part_bboxes[i], 'category_id': part_labels[i], 'area': part_areas[i], 'iscrowd': part_iscrowd[i]}
+            ann = {'id': part_ann_id, 'image_id': image_id, 'bbox': part_bboxes[i], 'category_id': part_labels[i], 'area': part_areas[i], 'iscrowd': part_iscrowd[i]}
             part_categories.add(part_labels[i])
             if 'masks' in part_targets:
                 ann['segmentation'] = coco_mask.encode(part_masks[i].numpy())
@@ -76,6 +69,7 @@ def convert_to_coco_api_obj_part(ds):
                 ann['keypoints'] = part_keypoints[i]
                 ann['num_keypoints'] = sum(k != 0 for k in part_keypoints[i][2::3])
             part_dataset['annotations'].append(ann)
+            part_ann_id += 1
     
     obj_dataset['categories'] = [{'id': i} for i in sorted(obj_categories)]
     obj_coco.dataset = obj_dataset
@@ -86,6 +80,24 @@ def convert_to_coco_api_obj_part(ds):
     part_coco.createIndex()
     
     return obj_coco, part_coco
+
+
+def get_area(box):
+    return (box[2] - box[0]) * (box[3] - box[1])
+
+
+def get_intersection_area(box1, box2):
+    """
+    compute intersection area of box1 and box2 (both are 4 dim box coordinates in [x1, y1, x2, y2] format)
+    """
+    xmin1, ymin1, xmax1, ymax1 = box1
+    xmin2, ymin2, xmax2, ymax2 = box2
+    
+    x_overlap = max(0, min(xmax1, xmax2) - max(xmin1, xmin2))
+    y_overlap = max(0, min(ymax1, ymax2) - max(ymin1, ymin2))
+    overlap_area = x_overlap * y_overlap
+    
+    return overlap_area
 
 
 def merge_targets(target1, target2):
@@ -117,6 +129,13 @@ def merge_targets_batch(targets1, targets2):
         merged_targets.append(merged_t); box_counts_1.append(box_c_1)
     
     return merged_targets, box_counts_1
+
+
+def set_all_seeds(seed=123):
+    random.seed(seed)
+    np.random.seed(seed)
+    torch.manual_seed(seed)
+    torch.cuda.manual_seed(seed)
 
 
 def split_targets(merged_target, box_count_1):

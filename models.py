@@ -5,7 +5,7 @@ from torchvision.models.detection import fasterrcnn_resnet50_fpn
 from torchvision.models.detection.faster_rcnn import FastRCNNPredictor
 from torchvision.models.detection.roi_heads import fastrcnn_loss
 
-from utils import merge_targets_batch, split_targets_batch
+from utils import get_area, get_intersection_area, merge_targets_batch, split_targets_batch
 
 
 def get_FasterRCNN_model(num_classes):
@@ -30,8 +30,8 @@ class JointDetector(nn.Module):
         self.object_detector = fasterrcnn_resnet50_fpn(pretrained=True)
         self.part_detector = fasterrcnn_resnet50_fpn(pretrained=True)
 
-        in_features_obj_det = self.object_detector.roi_heads.box_predictor.cls_score.in_features
-        in_features_part_det = self.part_detector.roi_heads.box_predictor.cls_score.in_features
+        in_features_obj_det = self.object_detector.roi_heads.box_predictor.cls_score.in_features # 1024
+        in_features_part_det = self.part_detector.roi_heads.box_predictor.cls_score.in_features # 1024
         in_features = in_features_obj_det + in_features_part_det
 
         self.object_detector.roi_heads.box_predictor = FastRCNNPredictor(in_features, obj_n_classes)
@@ -47,20 +47,23 @@ class JointDetector(nn.Module):
         Returns:
             losses in train mode and obj/part detections (tuple) in eval mode
         """
-        if self.training and (obj_targets is None or part_targets is None):
-            raise ValueError('In training mode, object and part targets should be passed')
-        
         original_image_sizes = torch.jit.annotate(List[Tuple[int, int]], [])
         for img in images:
             val = img.shape[-2:]
             assert len(val) == 2
             original_image_sizes.append((val[0], val[1]))
 
-        # transform img and targets
-        merged_targets, box_counts_1 = merge_targets_batch(obj_targets, part_targets)
-        images, merged_targets = self.transform(images, merged_targets)
-        obj_targets, part_targets = split_targets_batch(merged_targets, box_counts_1)
+        if self.training:
+            if obj_targets is None or part_targets is None:
+                raise ValueError('In training mode, object and part targets should be passed')
 
+            merged_targets, box_counts_1 = merge_targets_batch(obj_targets, part_targets)
+            images, merged_targets = self.transform(images, merged_targets) # transform img and targets
+            obj_targets, part_targets = split_targets_batch(merged_targets, box_counts_1)
+        else:
+            images, _ = self.transform(images)
+            obj_targets, part_targets = None, None
+        
         # get box proposals
         obj_features, obj_proposals, obj_proposal_losses = self.get_features_proposals_losses(self.object_detector, images, obj_targets, '_OBJ')
         part_features, part_proposals, part_proposal_losses = self.get_features_proposals_losses(self.part_detector, images, part_targets, '_PART')
@@ -79,20 +82,20 @@ class JointDetector(nn.Module):
         part_class_logits, part_box_regression = self.part_detector.roi_heads.box_predictor(part_box_features)
 
         # get final object and part detections
-        obj_detections, obj_det_losses = self.get_final_results_losses(self.object_detector, obj_class_logits, obj_box_regression, obj_labels,
+        obj_detections, obj_det_losses = self.get_detections_losses(self.object_detector, obj_class_logits, obj_box_regression, obj_labels,
             obj_regression_targets, obj_proposals, images.image_sizes, original_image_sizes, '_OBJ')
-        part_detections, part_det_losses = self.get_final_results_losses(self.part_detector, part_class_logits, part_box_regression, part_labels,
+        part_detections, part_det_losses = self.get_detections_losses(self.part_detector, part_class_logits, part_box_regression, part_labels,
             part_regression_targets, part_proposals, images.image_sizes, original_image_sizes, '_PART')
         
         losses = {}
         losses.update(obj_proposal_losses)
-        losses.update(part_proposal_losses)
         losses.update(obj_det_losses)
+        losses.update(part_proposal_losses)
         losses.update(part_det_losses)
 
         return losses if self.training else (obj_detections, part_detections)
     
-    def get_features_proposals_losses(self, model, images, targets, name=''):
+    def get_features_proposals_losses(self, model, images, targets=None, name=''):
         """
         Arguments:
             model (torchvision FasterRCNN model)
@@ -113,7 +116,7 @@ class JointDetector(nn.Module):
 
         return features, proposals, proposal_losses
     
-    def sample_proposals(self, model, proposals, targets):
+    def sample_proposals(self, model, proposals, targets=None):
         """
         Sample some proposals (only in train mode) for further training
         Arguments:
@@ -151,23 +154,63 @@ class JointDetector(nn.Module):
 
         return box_features
     
-    def get_fused_obj_part_features(self, obj_proposals, obj_box_features, part_proposals, part_box_features):
+    def get_fused_obj_part_features(self, obj_proposals, obj_box_features, part_proposals, part_box_features, thresh=0.9):
         """
         Perform feature fusion to get enhanced representation for object and part
+            for each obj, fuse with those parts where intersection_area(obj, part) / area(part) >= thresh
+            for each part, fuse with those objects where intersection_area(obj, part) / area(part) >= thresh
         Arguments:
             {obj/part}_proposals (List[Tensor[N, 4]]): box proposals
             {obj/part}_box_features (Tensor[N_sum, num_{obj/part}_features]): box_features for object and part
+            thresh (float): threshold of intersection for finding related objs/parts for a part/obj
         Returns:
             fused_obj_box_features (Tensor[N_sum, num_obj_features + num_part_features])
             fused_part_box_features (num_part_features + num_obj_features)
         """
         ########## TODO ##########
+        # For each image in batch
+        #    Separate out obj_box_features and part_box_features only for current image
+        #    For each obj {O}
+        #      1. find related part {Pi} box features --> [N,1024]
+        #          [Those part boxes where area(obj,part)/area(part) >= thresh]
+        #          Alternatively, all part boxes {Pi} where area(O,Pi) >= area_thresh i.e. area(Pi)*thresh
+        #      2. avg above results--> [1024]
+        #      3. concatenate with obj feature
+
+        #    For each part {P}
+        #      1. find related obj {Oi} box features --> [N,1024]
+        #          [Those obj boxes where area(obj,part)/area(part) >= thresh]
+        #          Alternatively, all obj boxes {Oi} where area(Oi,P) >= area_thresh i.e. area(P)*thresh
+        #      2. avg above results--> [1024]
+        #      3. concatenate with part feature
+
+        # fill get_related_box_features() 
+
+        # Currently concatenate same, but ideally the 2nd parameter in concatenation will come from above ideology
         fused_obj_box_features = torch.cat((obj_box_features, obj_box_features), dim=1)
         fused_part_box_features = torch.cat((part_box_features, part_box_features), dim=1)
 
         return fused_obj_box_features, fused_part_box_features
     
-    def get_final_results_losses(self, model, class_logits, box_regression, labels, regression_targets, proposals, image_sizes, original_image_sizes, name=''):
+    def get_related_box_features(box, other_boxes, other_box_features, area_thresh):
+        """
+        Find all `other_boxes` where intersection_area(box, other_box) >= area_thresh
+        Arguments:
+            box (Tensor[4]): bounding box coordinates of the object
+            other_boxes (Tensor[N, 4]): bounding box coordinates of N other boxes from which some are selected
+            other_box_featueres (Tensor[N, feature_dim]): corresponding box_features of the N other boxes
+            area_thresh (float)
+        Returns:
+            related_box_features (Tensor[N', feature_dim]): box_features of other_boxes that satisfy the condition
+        """
+        ########## TODO ##########
+        # currently returning all features as it is. Instead should only return features of those boxes that satisfy the condition
+        # use utils.py/get_intersection_area(box1, box2)
+        selected_idx = np.arange(other_boxes.shape[0])
+
+        return other_box_features[selected_idx]
+    
+    def get_detections_losses(self, model, class_logits, box_regression, labels, regression_targets, proposals, image_sizes, original_image_sizes, name=''):
         """
         Arguments:
             model (torchvision FasterRCNN model)

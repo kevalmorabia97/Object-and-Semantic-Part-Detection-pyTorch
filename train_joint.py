@@ -63,7 +63,7 @@ def train_one_epoch(model, optimizer, data_loader, device, epoch, print_freq=100
 def evaluate(model, data_loader, device, print_freq=1000, header='Test:'):
     """
     Evaluate model (JointDetector) from data in data_loader (images, obj_targets, part_targets)
-    Return obj/part_coco_evaluator, obj/part_stats
+    Return {obj/part}_coco_evaluator, {obj/part}_stats
     """
     n_threads = torch.get_num_threads()
     # FIXME remove this and make paste_masks_in_image run on the GPU
@@ -84,8 +84,7 @@ def evaluate(model, data_loader, device, print_freq=1000, header='Test:'):
 
         torch.cuda.synchronize()
         model_time = time.time()
-        obj_detections, part_detections = model(images, obj_targets, part_targets)
-        
+        obj_detections, part_detections = model(images)
         obj_detections = [{k: v.to(cpu_device) for k, v in t.items()} for t in obj_detections]
         part_detections = [{k: v.to(cpu_device) for k, v in t.items()} for t in part_detections]
         model_time = time.time() - model_time
@@ -102,15 +101,15 @@ def evaluate(model, data_loader, device, print_freq=1000, header='Test:'):
 
     # gather the stats from all processes
     metric_logger.synchronize_between_processes()
-    obj_coco_evaluator.synchronize_between_processes()
-    part_coco_evaluator.synchronize_between_processes()
 
     # accumulate predictions from all images
     print('\nObject Detection Results:')
+    obj_coco_evaluator.synchronize_between_processes()
     obj_coco_evaluator.accumulate()
     obj_stats = obj_coco_evaluator.summarize()
     
     print('\nPart Detection Results:')
+    part_coco_evaluator.synchronize_between_processes()
     part_coco_evaluator.accumulate()
     part_stats = part_coco_evaluator.summarize()
     
