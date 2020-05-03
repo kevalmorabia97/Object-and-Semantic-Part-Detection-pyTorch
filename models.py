@@ -187,64 +187,68 @@ class JointDetector(nn.Module):
             img_obj_box_features = obj_box_features[obj_proposal_idx_range[i]: obj_proposal_idx_range[i+1]]
             img_part_box_features = part_box_features[part_proposal_idx_range[i]: part_proposal_idx_range[i+1]]
             
-            for obj_box in img_obj_proposals:
-                related_part_feats = self.get_related_part_box_features(obj_box, img_part_proposals, img_part_box_features)
-                related_part_feats = related_part_feats.mean(0)
-                related_part_features.append(related_part_feats)
+            related_part_box_feats, related_obj_box_feats = self.get_related_box_features(img_obj_proposals, img_part_proposals,
+                                                                                          img_obj_box_features, img_part_box_features)
+            related_obj_features.append(related_obj_box_feats)
+            related_part_features.append(related_part_box_feats)
 
-            for part_box in img_part_proposals:
-                related_obj_feats = self.get_related_obj_box_features(part_box, img_obj_proposals, img_obj_box_features)
-                related_obj_feats = related_obj_feats.mean(0)
-                related_obj_features.append(related_obj_feats)
-
-        related_obj_features = torch.stack(related_obj_features, dim=0) # [N_part_box_features, in_features_obj_det]
-        related_part_features = torch.stack(related_part_features, dim=0) # [N_obj_box_features, in_features_part_det]
+        related_obj_features = torch.cat(related_obj_features, dim=0) # [N_part_box_features, in_features_obj_det]
+        related_part_features = torch.cat(related_part_features, dim=0) # [N_obj_box_features, in_features_part_det]
         
         fused_obj_box_features = torch.cat((obj_box_features, related_part_features), dim=1)
         fused_part_box_features = torch.cat((part_box_features, related_obj_features), dim=1)
 
         return fused_obj_box_features, fused_part_box_features
     
-    def get_related_obj_box_features(self, part_box, obj_boxes, obj_box_features):
+    def get_related_box_features(self, obj_boxes, part_boxes, obj_box_features, part_box_features, reduction='mean'):
         """
-        Find all `obj_boxes` where intersection_area(part_box, obj_box)/area(part_box) >= fusion_thresh
+        For any part_box related `obj_boxes` are those where intersection_area(part_box, obj_box)/area(part_box) >= fusion_thresh
+        For any obj_box related `part_boxes` are those where intersection_area(part_box, obj_box)/area(part_box) >= fusion_thresh
+            NOTE: Currently using fusion_thresh=1.0 for fast computations
         Arguments:
-            part_box (Tensor[4]): bounding box coordinates of the part
-            obj_boxes (Tensor[N, 4]): bounding box coordinates of N obj_boxes from which some are selected
-            obj_box_features (Tensor[N, in_features_obj_det]): corresponding box_features of the N obj boxes
+            obj_boxes (Tensor[N1, 4]): bounding box coordinates of obj_boxes
+            part_boxes (Tensor[N2, 4]): bounding box coordinates of part_boxes
+            obj_box_features (Tensor[N1, in_features_obj_det]): corresponding box_features of the N1 obj boxes
+            part_box_features (Tensor[N2, in_features_part_det]): corresponding box_features of the N2 part boxes
+            reduction (string): method to combine features of all related objects/parts for a part/object (default: mean)
+                TODO: Support for learning score using attention and doing weighted average
         Returns:
-            related_obj_box_features (Tensor[N', in_features_obj_det]): box_features of obj_boxes that satisfy the condition
-                Note: if no related obj_box is found, return zero-tensor of shape [1, in_features_obj_det]
+            related_part_box_features (Tensor[N1, in_features_part_det]): mean of box_features of part_boxes related to the N1 obj boxes
+            related_obj_box_features (Tensor[N2, in_features_part_det]): mean of box_features of obj_boxes related to the N2 part boxes
+                Note: if no related {obj/part}_box is found, return zero-tensor is considered
         """
         # TODO: This part is very very slow. Need to optimize it
 
-        N = obj_box_features.shape[0]
-        # area_thresh = get_area(part_box)*self.fusion_thresh
-        # selected_idx = [i for i in range(N) if get_intersection_area(part_box, obj_boxes[i]) >= area_thresh]
-        selected_idx = [i for i in range(N) if is_box_inside(part_box, obj_boxes[i])]
-        if selected_idx == []:
-            return torch.zeros_like(obj_box_features[0:1])
-        return obj_box_features[selected_idx, :]
-    
-    def get_related_part_box_features(self, obj_box, part_boxes, part_box_features):
-        """
-        Find all `part_boxes` where intersection_area(obj_box, part_box)/area(part_box) >= fusion_thresh
-        Arguments:
-            obj_box (Tensor[4]): bounding box coordinates of the obj
-            part_boxes (Tensor[N, 4]): bounding box coordinates of N part_boxes from which some are selected
-            part_box_features (Tensor[N, in_features_part_det]): corresponding box_features of the N part boxes
-        Returns:
-            related_part_box_features (Tensor[N', in_features_part_det]): box_features of part_boxes that satisfy the condition
-                Note: if no related part_box is found, return zero-tensor of shape [1, in_features_part_det]
-        """
-        # TODO: This part is very very slow. Need to optimize it
+        N1, N2 = obj_box_features.shape[0], part_box_features.shape[0]
+        related_part_idxs = [[] for _ in range(N1)] # list of idxs of related parts for ith obj
+        related_obj_idxs = [[] for _ in range(N2)] # list of idxs of related objects for ith part
+        for p_idx in range(N2):
+            # area_thresh = get_area(part_boxes[p_idx])*self.fusion_thresh
+            for o_idx in range(N1):
+                # if get_intersection_area(part_boxes[p_idx], obj_boxes[o_idx]) >= area_thresh:
+                if is_box_inside(part_boxes[p_idx], obj_boxes[o_idx]):
+                    related_part_idxs[o_idx].append(p_idx)
+                    related_obj_idxs[p_idx].append(o_idx)
         
-        N = part_box_features.shape[0]
-        # selected_idx = [i for i in range(N) if get_intersection_area(obj_box, part_boxes[i]) >= get_area(part_boxes[i])*self.fusion_thresh]
-        selected_idx = [i for i in range(N) if is_box_inside(part_boxes[i], obj_box)]
-        if selected_idx == []:
-            return torch.zeros_like(part_box_features[0:1])
-        return part_box_features[selected_idx, :]
+        zero_part_feat = torch.zeros_like(part_box_features[0]) # use this if no related parts for an object
+        related_part_box_feats = [] # mean of features of related parts for ith object
+        for o_idx in range(N1):
+            if related_part_idxs[o_idx] == []:
+                related_part_box_feats.append(zero_part_feat)
+            else:
+                related_part_box_feats.append(part_box_features[related_part_idxs[o_idx]].mean(0))
+        related_part_box_feats = torch.stack(related_part_box_feats, dim=0) # [N1, in_features_part_det]
+
+        zero_obj_feat = torch.zeros_like(obj_box_features[0]) # use this if no related objects for a part
+        related_obj_box_feats = [] # mean of features of related objects for ith part
+        for p_idx in range(N2):
+            if related_obj_idxs[p_idx] == []:
+                related_obj_box_feats.append(zero_obj_feat)
+            else:
+                related_obj_box_feats.append(obj_box_features[related_obj_idxs[p_idx]].mean(0))
+        related_obj_box_feats = torch.stack(related_obj_box_feats, dim=0)
+
+        return related_part_box_feats, related_obj_box_feats
     
     def get_detections_losses(self, model, class_logits, box_regression, labels, regression_targets, proposals, image_sizes, original_image_sizes, name=''):
         """
