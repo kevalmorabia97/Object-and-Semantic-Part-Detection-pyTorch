@@ -168,31 +168,63 @@ class JointDetector(nn.Module):
             fused_part_box_features (num_part_features + num_obj_features)
         """
         ########## TODO ##########
+        N = len(obj_proposals)
+
         # For each image in batch
-        #    Separate out obj_box_features and part_box_features only for current image
-        #    For each obj {O}
-        #      1. find related part {Pi} box features --> [N,1024]
+        for i in range(N):
+        #   Separate out obj_box_features and part_box_features only for current image
+            image_objects_features = obj_box_features
+            image_objects = obj_proposals[i]
+            image_parts_features = part_box_features
+            image_parts = part_proposals[i]
+            
+            fused_objects = []
+        #   For each obj {O}
+            j = 0
+            for obj in image_objects:   
+                if self.get_related_box_features(obj, image_parts, image_parts_features, thresh) is not None:
+        #       1. find related part {Pi} box features --> [N,1024]
         #          [Those part boxes where area(obj,part)/area(part) >= thresh]
         #          Alternatively, all part boxes {Pi} where area(O,Pi) >= area_thresh i.e. area(Pi)*thresh
-        #      2. avg above results--> [1024]
-        #      3. concatenate with obj feature
+                    related_part_features = self.get_related_box_features(obj, image_parts, image_parts_features, thresh) 
+        #       2. avg above results--> [1024]
+                    related_part_features = related_part_features.mean(0)                    
+                else:
+                    related_part_features = torch.zeros([image_objects_features[j].shape[0]])
+        #       3. concatenate with obj feature
+                fused_objects.append(torch.cat((image_objects_features[j], related_part_features), dim=0))
+                j += 1
 
-        #    For each part {P}
-        #      1. find related obj {Oi} box features --> [N,1024]
+            fused_obj_box_features = torch.stack(fused_objects)
+
+            fused_parts = []
+        #   For each part {P}
+            j = 0
+            for part in image_parts:
+                if self.get_related_box_features(part, image_objects, image_objects_features, thresh) is not None:
+        #       1. find related obj {Oi} box features --> [N,1024]
         #          [Those obj boxes where area(obj,part)/area(part) >= thresh]
         #          Alternatively, all obj boxes {Oi} where area(Oi,P) >= area_thresh i.e. area(P)*thresh
-        #      2. avg above results--> [1024]
-        #      3. concatenate with part feature
+                    related_object_features = self.get_related_box_features(part, image_objects, image_objects_features, thresh)
+        #       2. avg above results--> [1024]
+                    related_object_features = related_object_features.mean(0)
+                else:
+                    related_object_features = torch.zeros([image_parts_features[j].shape[0]])
+        #       3. concatenate with part feature
+                fused_parts.append(torch.cat((image_parts_features[j], related_object_features), dim=0))
+                j += 1
+
+            fused_part_box_features = torch.stack(fused_parts)
 
         # fill get_related_box_features() 
 
         # Currently concatenate same, but ideally the 2nd parameter in concatenation will come from above ideology
-        fused_obj_box_features = torch.cat((obj_box_features, obj_box_features), dim=1)
-        fused_part_box_features = torch.cat((part_box_features, part_box_features), dim=1)
+        # fused_obj_box_features = torch.cat((obj_box_features, obj_box_features), dim=1)
+        # fused_part_box_features = torch.cat((part_box_features, part_box_features), dim=1)
 
         return fused_obj_box_features, fused_part_box_features
     
-    def get_related_box_features(box, other_boxes, other_box_features, area_thresh):
+    def get_related_box_features(self, box, other_boxes, other_box_features, area_thresh):
         """
         Find all `other_boxes` where intersection_area(box, other_box) >= area_thresh
         Arguments:
@@ -206,9 +238,18 @@ class JointDetector(nn.Module):
         ########## TODO ##########
         # currently returning all features as it is. Instead should only return features of those boxes that satisfy the condition
         # use utils.py/get_intersection_area(box1, box2)
-        selected_idx = np.arange(other_boxes.shape[0])
+        selected = []
+        N = other_boxes.shape[0]
+        for i in range(N):
+            if get_intersection_area(box, other_boxes[i]) / get_area(other_boxes[i]) >= area_thresh:
+                selected.append(other_box_features[i])
+        if selected:
+            selected = torch.stack(selected)
+            return selected
+        return None
 
-        return other_box_features[selected_idx]
+        # selected_idx = np.arange(other_boxes.shape[0])
+        # return other_box_features[selected_idx]
     
     def get_detections_losses(self, model, class_logits, box_regression, labels, regression_targets, proposals, image_sizes, original_image_sizes, name=''):
         """
