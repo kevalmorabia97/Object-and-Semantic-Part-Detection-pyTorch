@@ -79,6 +79,7 @@ class PascalPartVOCDetection(VisionDataset):
             self.part_classes = self.classes
 
         file_names = np.loadtxt(splits_file, dtype=str)
+        # try x[0] if file_name is parsed incorrectly
         self.images = ['%s/%s.jpg' % (image_dir, x) for x in file_names]
         self.annotations = ['%s/%s.json' % (annotation_dir, x) for x in file_names]
 
