@@ -100,6 +100,18 @@ def get_intersection_area(box1, box2):
     return overlap_area
 
 
+def is_box_inside(in_box, out_box):
+    """
+    check if in_box is inside out_box (both are 4 dim box coordinates in [x1, y1, x2, y2] format)
+    """
+    xmin_o, ymin_o, xmax_o, ymax_o = out_box
+    xmin_i, ymin_i, xmax_i, ymax_i = in_box
+    
+    if (xmin_o > xmin_i) or (xmax_o < xmax_i) or (ymin_o > ymin_i) or (ymax_o < ymax_i):
+        return False
+    return True
+
+
 def merge_targets(target1, target2):
     """
     merge 2 targets (dict) of the same image into single by merging their `boxes`, `labels`, `area`, `iscrowd`.
