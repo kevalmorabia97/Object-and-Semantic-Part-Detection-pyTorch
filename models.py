@@ -26,9 +26,9 @@ class JointDetector(nn.Module):
         for each obj, fuse with those parts where intersection_area(obj, part) / area(part) >= `fusion_thresh`
         for each part, fuse with those objects where intersection_area(obj, part) / area(part) >= `fusion_thresh`
         
-        fusion_thresh: threshold at which we consider a part/object to be related to another object/part (default: ~1.0, part strictly inside object area)
+        fusion_thresh: threshold at which we consider a part/object to be related to another object/part (default: 0.9)
     """
-    def __init__(self, obj_n_classes, part_n_classes, fusion_thresh=0.99999):
+    def __init__(self, obj_n_classes, part_n_classes, fusion_thresh=0.9):
         super(JointDetector, self).__init__()
         self.fusion_thresh = fusion_thresh
         
@@ -188,7 +188,7 @@ class JointDetector(nn.Module):
             img_obj_box_features = obj_box_features[obj_proposal_idx_range[i]: obj_proposal_idx_range[i+1]]
             img_part_box_features = part_box_features[part_proposal_idx_range[i]: part_proposal_idx_range[i+1]]
             
-            related_part_box_feats, related_obj_box_feats = self.get_related_box_features_vectorized(img_obj_proposals, img_part_proposals,
+            related_part_box_feats, related_obj_box_feats = self.get_related_box_features(img_obj_proposals, img_part_proposals,
                                                                                           img_obj_box_features, img_part_box_features)
             related_obj_features.append(related_obj_box_feats)
             related_part_features.append(related_part_box_feats)
@@ -201,8 +201,9 @@ class JointDetector(nn.Module):
 
         return fused_obj_box_features, fused_part_box_features
     
-    def get_related_box_features(self, obj_boxes, part_boxes, obj_box_features, part_box_features, reduction='mean'):
+    def get_related_box_features_slow(self, obj_boxes, part_boxes, obj_box_features, part_box_features, reduction='mean'):
         """
+        see get_related_box_features() for efficient implementation
         For any part_box related `obj_boxes` are those where intersection_area(part_box, obj_box)/area(part_box) >= fusion_thresh
         For any obj_box related `part_boxes` are those where intersection_area(part_box, obj_box)/area(part_box) >= fusion_thresh
             NOTE: Currently using fusion_thresh=1.0 for fast computations
@@ -218,8 +219,6 @@ class JointDetector(nn.Module):
             related_obj_box_features (Tensor[N2, in_features_part_det]): mean of box_features of obj_boxes related to the N2 part boxes
                 Note: if no related {obj/part}_box is found, return zero-tensor is considered
         """
-        # TODO: This part is very very slow. Need to optimize it
-
         N1, N2 = obj_box_features.shape[0], part_box_features.shape[0]
         related_part_idxs = [[] for _ in range(N1)] # list of idxs of related parts for ith obj
         related_obj_idxs = [[] for _ in range(N2)] # list of idxs of related objects for ith part
@@ -251,7 +250,7 @@ class JointDetector(nn.Module):
 
         return related_part_box_feats, related_obj_box_feats
 
-    def get_related_box_features_vectorized(self, obj_boxes, part_boxes, obj_box_features, part_box_features, reduction='mean'):
+    def get_related_box_features(self, obj_boxes, part_boxes, obj_box_features, part_box_features, reduction='mean'):
         """
         For any part_box related `obj_boxes` are those where intersection_area(part_box, obj_box)/area(part_box) >= fusion_thresh
         For any obj_box related `part_boxes` are those where intersection_area(part_box, obj_box)/area(part_box) >= fusion_thresh
@@ -268,49 +267,31 @@ class JointDetector(nn.Module):
             related_obj_box_features (Tensor[N2, in_features_part_det]): mean of box_features of obj_boxes related to the N2 part boxes
                 Note: if no related {obj/part}_box is found, return zero-tensor is considered
         """
+        N1, N2 = obj_boxes.shape[0], part_boxes.shape[0]
+        part_box_areas = (part_boxes[:, 3] - part_boxes[:, 1]) * (part_boxes[:, 2] - part_boxes[:, 0]) # Tensor[N2]
 
-        obj_top_left = obj_boxes[:, :2] # Tensor[N1, 2]
-        part_top_left = part_boxes[:, :2] # Tensor[N2, 2]
+        # top-left point of interection area corresponding to each part-object pair
+        temp = torch.stack([obj_boxes[:, :2].contiguous().view(-1).repeat(N2), part_boxes[:, :2].repeat(1, N1).view(-1)], dim=1)
+        intersect_top_left = temp.max(dim=1)[0].view(N2, N1, 2)
         
-        obj_bottom_right = obj_boxes[:, 2:] # Tensor[N1, 2]
-        part_bottom_right = part_boxes[:, 2:] # Tensor[N2, 2]
+        # bottom-right point of interection area corresponding to each part-object pair
+        temp = torch.stack([obj_boxes[:, 2:].contiguous().view(-1).repeat(N2), part_boxes[:, 2:].repeat(1, N1).view(-1)], dim=1)
+        intersect_bottom_right = temp.min(dim=1)[0].view(N2, N1, 2)
 
-        # find top-left point of interection area corresponding to each object-part pair
-        temp = np.broadcast(obj_top_left.cpu(), part_top_left[:, None].cpu())
-        overlap_top_left = np.empty(temp.shape) # numpy shape [N2, N1, 2]
-        overlap_top_left.flat = [max(u, v) for u, v in temp]
+        overlap_sides = torch.clamp(intersect_bottom_right - intersect_top_left, min=0.0) # make negative side lengths zero
+        overlap_areas = overlap_sides[:, :, 0] * overlap_sides[:, :, 1] # calculate overlap area for each part-object pair (Tensor[N2, N1])
         
-        # find bottom-right point of interection area corresponding to each object-part pair
-        temp = np.broadcast(obj_bottom_right.cpu(), part_bottom_right[:, None].cpu())
-        overlap_bottom_right = np.empty(temp.shape) # numpy shape [N2, N1, 2]
-        overlap_bottom_right.flat = [min(u, v) for u, v in temp]
+        # part_overlap_fraction's [i,j]th element is fraction of part[i]'s area overlapped with obj[j] [Assumption: each part area > 0.0]
+        part_overlap_fraction = overlap_areas / part_box_areas.view(N2, 1) # Tensor[N2, N1]
+        related_part_obj_pairs = (part_overlap_fraction >= self.fusion_thresh).float()
 
-        overlap_sides = (overlap_bottom_right - overlap_top_left).clip(min=0.0) # make negative side lengths = 0.0
-        overlap_area = overlap_sides[:, :, 0] * overlap_sides[:, :, 1] # calculate overlap area for each object-part pair (Tensor[N2, N1])
+        part_wise_obj_overlaps = related_part_obj_pairs.sum(dim=1) # Tensor[N2]
+        part_wise_obj_overlaps[part_wise_obj_overlaps == 0.0] = 1.0 # to avoid division by 0 while taking mean for parts not overlapping with any obj
+        related_obj_box_feats = torch.matmul(related_part_obj_pairs, obj_box_features) / part_wise_obj_overlaps.view(N2, 1)
         
-        # calculate area of each part box
-        part_sides = part_bottom_right - part_top_left
-        part_area = part_sides[:, 0] * part_sides[:, 1] # Tensor[N2]
-
-        overlap_area_tensor = torch.from_numpy(overlap_area).float().to(obj_box_features.device)
-        # reshape part_area (broadcast) to match the shape of overlap_area_tensor (for element-wise division) [Assumption: each part area > 0.0]
-        overlap_area_tensor = overlap_area_tensor / part_area.reshape(-1, 1).repeat(1, overlap_area_tensor.shape[1])
-        
-        # apply fusion thresholds (and convert overlap_area_tensor to binary values 0/1)
-        overlap_area_tensor[overlap_area_tensor >= self.fusion_thresh] = 1.0
-        overlap_area_tensor[overlap_area_tensor < self.fusion_thresh] = 0.0
-
-        part_wise_obj_overlaps = overlap_area_tensor.sum(dim=1) # Tensor[N2]
-        part_wise_obj_overlaps[part_wise_obj_overlaps == 0.0] = 1.0 # to avoid division by 0.0 (while taking mean) [for parts not overlapping with any obj]
-        part_wise_obj_overlaps = part_wise_obj_overlaps.reshape(-1, 1).repeat(1, obj_box_features.shape[1]) # Tensor[N2, in_features_obj_det]
-        
-        related_obj_box_feats = torch.matmul(overlap_area_tensor, obj_box_features) / part_wise_obj_overlaps
-        
-        obj_wise_part_overlaps = overlap_area_tensor.sum(dim=0) # Tensor[N1]
-        obj_wise_part_overlaps[obj_wise_part_overlaps == 0.0] = 1.0 # to avoid division by 0.0 (while taking mean) [for obj not overlapping with any parts]
-        obj_wise_part_overlaps = obj_wise_part_overlaps.reshape(-1, 1).repeat(1, part_box_features.shape[1]) # Tensor[N1, in_features_part_det]
-        
-        related_part_box_feats = torch.matmul(overlap_area_tensor.t(), part_box_features) / obj_wise_part_overlaps
+        obj_wise_part_overlaps = related_part_obj_pairs.sum(dim=0) # Tensor[N1]
+        obj_wise_part_overlaps[obj_wise_part_overlaps == 0.0] = 1.0 # to avoid division by 0 while taking mean for obj not overlapping with any parts
+        related_part_box_feats = torch.matmul(related_part_obj_pairs.t(), part_box_features) / obj_wise_part_overlaps.view(N1, 1)
 
         return related_part_box_feats, related_obj_box_feats
         
