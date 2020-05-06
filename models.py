@@ -27,10 +27,12 @@ class JointDetector(nn.Module):
         for each part, fuse with those objects where intersection_area(obj, part) / area(part) >= `fusion_thresh`
         
         fusion_thresh: threshold at which we consider a part/object to be related to another object/part (default: 0.9)
+        use_attention: if True (default), compute score for each related obj-part pair and take weighted average of features instead of mean
     """
-    def __init__(self, obj_n_classes, part_n_classes, fusion_thresh=0.9):
+    def __init__(self, obj_n_classes, part_n_classes, fusion_thresh=0.9, use_attention=True):
         super(JointDetector, self).__init__()
         self.fusion_thresh = fusion_thresh
+        self.use_attention = use_attention
         
         print('Creating JointDetector(fusion_thresh=%.2f) for %d Object, %d Part classes...' % (self.fusion_thresh, obj_n_classes, part_n_classes))
         self.object_detector = fasterrcnn_resnet50_fpn(pretrained=True)
@@ -44,6 +46,12 @@ class JointDetector(nn.Module):
         self.part_detector.roi_heads.box_predictor = FastRCNNPredictor(in_features, part_n_classes)
 
         self.transform = self.object_detector.transform # both detectors have save transforms so anyone can be used
+
+        if self.use_attention:
+            print('Using Attention Layer to compute object-part score for feature fusion!')
+            self.attention_layer = nn.Sequential(
+                nn.Linear(in_features, 1)
+            )
     
     def forward(self, images, obj_targets=None, part_targets=None):
         """
@@ -201,7 +209,7 @@ class JointDetector(nn.Module):
 
         return fused_obj_box_features, fused_part_box_features
     
-    def get_related_box_features_slow(self, obj_boxes, part_boxes, obj_box_features, part_box_features, reduction='mean'):
+    def get_related_box_features_slow(self, obj_boxes, part_boxes, obj_box_features, part_box_features):
         """
         see get_related_box_features() for efficient implementation
         For any part_box related `obj_boxes` are those where intersection_area(part_box, obj_box)/area(part_box) >= fusion_thresh
@@ -212,8 +220,6 @@ class JointDetector(nn.Module):
             part_boxes (Tensor[N2, 4]): bounding box coordinates of part_boxes
             obj_box_features (Tensor[N1, in_features_obj_det]): corresponding box_features of the N1 obj boxes
             part_box_features (Tensor[N2, in_features_part_det]): corresponding box_features of the N2 part boxes
-            reduction (string): method to combine features of all related objects/parts for a part/object (default: mean)
-                TODO: Support for learning score using attention and doing weighted average
         Returns:
             related_part_box_features (Tensor[N1, in_features_part_det]): mean of box_features of part_boxes related to the N1 obj boxes
             related_obj_box_features (Tensor[N2, in_features_part_det]): mean of box_features of obj_boxes related to the N2 part boxes
@@ -250,7 +256,7 @@ class JointDetector(nn.Module):
 
         return related_part_box_feats, related_obj_box_feats
 
-    def get_related_box_features(self, obj_boxes, part_boxes, obj_box_features, part_box_features, reduction='mean'):
+    def get_related_box_features(self, obj_boxes, part_boxes, obj_box_features, part_box_features):
         """
         For any part_box related `obj_boxes` are those where intersection_area(part_box, obj_box)/area(part_box) >= fusion_thresh
         For any obj_box related `part_boxes` are those where intersection_area(part_box, obj_box)/area(part_box) >= fusion_thresh
@@ -259,9 +265,6 @@ class JointDetector(nn.Module):
             part_boxes (Tensor[N2, 4]): bounding box coordinates of part_boxes
             obj_box_features (Tensor[N1, in_features_obj_det]): corresponding box_features of the N1 obj boxes
             part_box_features (Tensor[N2, in_features_part_det]): corresponding box_features of the N2 part boxes
-            reduction (string): method to combine features of all related objects/parts for a part/object (default: mean)
-                TODO: Support for learning score using attention and doing weighted average
-                TODO: Generify to consider other reduction techniques (may have to implement using loops, not directly using vectors)
         Returns:
             related_part_box_features (Tensor[N1, in_features_part_det]): mean of box_features of part_boxes related to the N1 obj boxes
             related_obj_box_features (Tensor[N2, in_features_part_det]): mean of box_features of obj_boxes related to the N2 part boxes
@@ -283,15 +286,22 @@ class JointDetector(nn.Module):
         
         # part_overlap_fraction's [i,j]th element is fraction of part[i]'s area overlapped with obj[j] [Assumption: each part area > 0.0]
         part_overlap_fraction = overlap_areas / part_box_areas.view(N2, 1) # Tensor[N2, N1]
-        related_part_obj_pairs = (part_overlap_fraction >= self.fusion_thresh).float()
+        related_part_obj_pair_scores = (part_overlap_fraction >= self.fusion_thresh).float() # 0/1 score
 
-        part_wise_obj_overlaps = related_part_obj_pairs.sum(dim=1) # Tensor[N2]
+        if self.use_attention:
+            part_obj_idxs = torch.nonzero(related_part_obj_pair_scores > 0) # Tensor[N_part_obj_pairs, 2]
+            attn_input = torch.cat([obj_box_features[part_obj_idxs[:,1]], part_box_features[part_obj_idxs[:,0]]], dim=1) # Tensor[N_part_obj_pairs, in_features]
+            attn_scores = self.attention_layer(attn_input) # Tensor[N_part_obj_pairs, 1] scores for each related part-object pair
+            related_part_obj_pair_scores[related_part_obj_pair_scores > 0] = attn_scores.view(-1) # use score instead of 1
+            ## NOTE: if memory is an issue, attn_scores can be computed in batches of attn_inputs
+
+        part_wise_obj_overlaps = related_part_obj_pair_scores.sum(dim=1) # Tensor[N2]
         part_wise_obj_overlaps[part_wise_obj_overlaps == 0.0] = 1.0 # to avoid division by 0 while taking mean for parts not overlapping with any obj
-        related_obj_box_feats = torch.matmul(related_part_obj_pairs, obj_box_features) / part_wise_obj_overlaps.view(N2, 1)
+        related_obj_box_feats = torch.matmul(related_part_obj_pair_scores, obj_box_features) / part_wise_obj_overlaps.view(N2, 1)
         
-        obj_wise_part_overlaps = related_part_obj_pairs.sum(dim=0) # Tensor[N1]
+        obj_wise_part_overlaps = related_part_obj_pair_scores.sum(dim=0) # Tensor[N1]
         obj_wise_part_overlaps[obj_wise_part_overlaps == 0.0] = 1.0 # to avoid division by 0 while taking mean for obj not overlapping with any parts
-        related_part_box_feats = torch.matmul(related_part_obj_pairs.t(), part_box_features) / obj_wise_part_overlaps.view(N1, 1)
+        related_part_box_feats = torch.matmul(related_part_obj_pair_scores.t(), part_box_features) / obj_wise_part_overlaps.view(N1, 1)
 
         return related_part_box_feats, related_obj_box_feats
         

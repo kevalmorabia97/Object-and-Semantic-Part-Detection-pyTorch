@@ -1,5 +1,5 @@
 """
-Code to train the Joint Object and Part Detector
+Code to train the Joint Object and Part Detector using Attention-based feature fusion
 """
 
 import argparse
@@ -26,6 +26,7 @@ parser.add_argument('-lr', '--learning_rate', type=float, default=1e-3)
 parser.add_argument('-bs', '--batch_size', type=int, default=1)
 parser.add_argument('-wd', '--weight_decay', type=float, default=1e-6)
 parser.add_argument('-ft', '--fusion_thresh', type=float, default=0.9)
+parser.add_argument('--no_attention', dest='no_attention', action='store_true')
 parser.add_argument('-nw', '--num_workers', type=int, default=0)
 parser.add_argument('-ms', '--max_samples', type=int, default=-1)
 args = parser.parse_args()
@@ -53,13 +54,14 @@ LEARNING_RATE = args.learning_rate
 BATCH_SIZE = args.batch_size
 WEIGHT_DECAY = args.weight_decay
 FUSION_THRESH = args.fusion_thresh
+USE_ATTENTION = not args.no_attention
 
 ########## Data Loaders ##########
 train_loader, val_loader, obj_class2ind, obj_n_classes, part_class2ind, part_n_classes = load_data(DATA_DIR, BATCH_SIZE, TRAIN_SPLIT, VAL_SPLIT,
     OBJ_CLASS2IND_FILE, USE_OBJECTS, USE_PARTS, RETURN_SEPARATE_TARGETS, PART_CLASS2IND_FILE, NUM_WORKERS, MAX_SAMPLES)
 
 ########## Create Model ##########
-model = JointDetector(obj_n_classes, part_n_classes, FUSION_THRESH).to(device)
+model = JointDetector(obj_n_classes, part_n_classes, FUSION_THRESH, USE_ATTENTION).to(device)
 
 params = [p for p in model.parameters() if p.requires_grad]
 optimizer = torch.optim.SGD(params, lr=LEARNING_RATE, momentum=0.9, weight_decay=WEIGHT_DECAY)
