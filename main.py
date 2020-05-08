@@ -70,8 +70,10 @@ if os.path.exists(model_save_path):
     print('Restoring trained model from %s' % model_save_path)
     checkpoint = torch.load(model_save_path, map_location=device)
     model.load_state_dict(checkpoint['model'])
-    lr_scheduler.load_state_dict(checkpoint['lr_scheduler'])
-    optimizer.load_state_dict(checkpoint['optimizer'])
+    if 'lr_scheduler' in checkpoint:
+        lr_scheduler.load_state_dict(checkpoint['lr_scheduler'])
+    if 'optimizer' in checkpoint:
+        optimizer.load_state_dict(checkpoint['optimizer'])
     best_val_mAP = checkpoint['mAP']
     start_epoch = checkpoint['epoch']+1
     N_EPOCHS = start_epoch + N_EPOCHS
@@ -80,12 +82,13 @@ if os.path.exists(model_save_path):
 for epoch in range(start_epoch, N_EPOCHS):
     train_one_epoch(model, optimizer, train_loader, device, epoch, print_freq=250)
     _, stats = evaluate(model, val_loader, device=device, print_freq=500, header='Val:')
-    lr_scheduler.step()
+    if epoch < 10: # stop decaying after 15 epochs
+        lr_scheduler.step()
 
     val_mAP = stats['bbox'][1] # AP @ IoU=0.5
     if val_mAP > best_val_mAP:
         best_val_mAP = val_mAP
-        checkpoint = {'model': model.state_dict(), 'optimizer' : optimizer.state_dict(), 'lr_scheduler': lr_scheduler.state_dict(),
+        checkpoint = {'model': model.state_dict(), #'optimizer' : optimizer.state_dict(), 'lr_scheduler': lr_scheduler.state_dict(),
                       'epoch': epoch, 'mAP': val_mAP}
         torch.save(checkpoint, model_save_path)
     

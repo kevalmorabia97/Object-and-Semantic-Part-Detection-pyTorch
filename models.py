@@ -272,7 +272,8 @@ class JointDetector(nn.Module):
         """
         N1, N2 = obj_boxes.shape[0], part_boxes.shape[0]
         part_box_areas = (part_boxes[:, 3] - part_boxes[:, 1]) * (part_boxes[:, 2] - part_boxes[:, 0]) # Tensor[N2]
-
+        # part_box_areas = torch.where(part_box_areas > 0, part_box_areas, torch.ones_like(part_box_areas)) # to avoid division by 0 in computing part_overlap_fraction
+        
         # top-left point of interection area corresponding to each part-object pair
         temp = torch.stack([obj_boxes[:, :2].contiguous().view(-1).repeat(N2), part_boxes[:, :2].repeat(1, N1).view(-1)], dim=1)
         intersect_top_left = temp.max(dim=1)[0].view(N2, N1, 2)
@@ -289,18 +290,19 @@ class JointDetector(nn.Module):
         related_part_obj_pair_scores = (part_overlap_fraction >= self.fusion_thresh).float() # 0/1 score
 
         if self.use_attention:
-            part_obj_idxs = torch.nonzero(related_part_obj_pair_scores > 0) # Tensor[N_part_obj_pairs, 2]
+            part_obj_idxs = torch.nonzero(part_overlap_fraction >= self.fusion_thresh) # Tensor[N_part_obj_pairs, 2]
             attn_input = torch.cat([obj_box_features[part_obj_idxs[:,1]], part_box_features[part_obj_idxs[:,0]]], dim=1) # Tensor[N_part_obj_pairs, in_features]
             attn_scores = self.attention_layer(attn_input) # Tensor[N_part_obj_pairs, 1] scores for each related part-object pair
-            related_part_obj_pair_scores[related_part_obj_pair_scores > 0] = attn_scores.view(-1) # use score instead of 1
+            related_part_obj_pair_scores = related_part_obj_pair_scores.clone()
+            related_part_obj_pair_scores[part_overlap_fraction >= self.fusion_thresh] = attn_scores.view(-1) # use score instead of 1
             ## NOTE: if memory is an issue, attn_scores can be computed in batches of attn_inputs
 
         part_wise_obj_overlaps = related_part_obj_pair_scores.sum(dim=1) # Tensor[N2]
-        part_wise_obj_overlaps[part_wise_obj_overlaps == 0.0] = 1.0 # to avoid division by 0 while taking mean for parts not overlapping with any obj
+        part_wise_obj_overlaps = torch.where(part_wise_obj_overlaps > 0, part_wise_obj_overlaps, torch.ones_like(part_wise_obj_overlaps))
         related_obj_box_feats = torch.matmul(related_part_obj_pair_scores, obj_box_features) / part_wise_obj_overlaps.view(N2, 1)
         
         obj_wise_part_overlaps = related_part_obj_pair_scores.sum(dim=0) # Tensor[N1]
-        obj_wise_part_overlaps[obj_wise_part_overlaps == 0.0] = 1.0 # to avoid division by 0 while taking mean for obj not overlapping with any parts
+        obj_wise_part_overlaps = torch.where(obj_wise_part_overlaps > 0, obj_wise_part_overlaps, torch.ones_like(obj_wise_part_overlaps))
         related_part_box_feats = torch.matmul(related_part_obj_pair_scores.t(), part_box_features) / obj_wise_part_overlaps.view(N1, 1)
 
         return related_part_box_feats, related_obj_box_feats

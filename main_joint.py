@@ -47,14 +47,14 @@ USE_OBJECTS = True
 USE_PARTS = True
 RETURN_SEPARATE_TARGETS = True
 
-model_save_path = 'saved_model_joint_%s.pth' % (TRAIN_SPLIT)
-
 ########## Hyperparameters ##########
 LEARNING_RATE = args.learning_rate
 BATCH_SIZE = args.batch_size
 WEIGHT_DECAY = args.weight_decay
 FUSION_THRESH = args.fusion_thresh
 USE_ATTENTION = not args.no_attention
+
+model_save_path = 'saved_model_joint_ft-%.2f_%s.pth' % (FUSION_THRESH, TRAIN_SPLIT)
 
 ########## Data Loaders ##########
 train_loader, val_loader, obj_class2ind, obj_n_classes, part_class2ind, part_n_classes = load_data(DATA_DIR, BATCH_SIZE, TRAIN_SPLIT, VAL_SPLIT,
@@ -74,8 +74,10 @@ if os.path.exists(model_save_path):
     print('Restoring trained model from %s' % model_save_path)
     checkpoint = torch.load(model_save_path, map_location=device)
     model.load_state_dict(checkpoint['model'])
-    lr_scheduler.load_state_dict(checkpoint['lr_scheduler'])
-    optimizer.load_state_dict(checkpoint['optimizer'])
+    if 'lr_scheduler' in checkpoint:
+        lr_scheduler.load_state_dict(checkpoint['lr_scheduler'])
+    if 'optimizer' in checkpoint:
+        optimizer.load_state_dict(checkpoint['optimizer'])
     best_val_mAP = checkpoint['mAP']
     start_epoch = checkpoint['epoch']+1
     N_EPOCHS = start_epoch + N_EPOCHS
@@ -84,13 +86,14 @@ if os.path.exists(model_save_path):
 for epoch in range(start_epoch, N_EPOCHS):
     train_one_epoch(model, optimizer, train_loader, device, epoch, print_freq=250)
     _, _, obj_det_stats, part_det_stats = evaluate(model, val_loader, device=device, print_freq=500, header='Val:')
-    lr_scheduler.step()
+    if epoch < 10: # stop decaying after 10 epochs
+        lr_scheduler.step()
 
     val_obj_det_mAP = obj_det_stats['bbox'][1] # AP @ IoU=0.5
     val_part_det_mAP = part_det_stats['bbox'][1] # AP @ IoU=0.5
     if val_obj_det_mAP > best_val_mAP['OBJECT']: # Save model which performs best for object detection
         best_val_mAP = {'OBJECT': val_obj_det_mAP, 'PART': val_part_det_mAP}
-        checkpoint = {'model': model.state_dict(), 'optimizer' : optimizer.state_dict(), 'lr_scheduler': lr_scheduler.state_dict(),
+        checkpoint = {'model': model.state_dict(), #'optimizer' : optimizer.state_dict(), 'lr_scheduler': lr_scheduler.state_dict(),
                       'epoch': epoch, 'mAP': best_val_mAP}
         torch.save(checkpoint, model_save_path)
     
