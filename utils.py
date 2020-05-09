@@ -6,6 +6,18 @@ from pycocotools import mask as coco_mask
 from pycocotools.coco import COCO
 
 
+def compute_per_class_AP(coco_evaluator):
+    """
+    Compute AP@IoU=0.5 for all classes
+    coco_evaluator: references.detection.coco_eval.CocoEvaluator
+    return list[float] of length n_classes-1 (except `__background__`)
+    """
+    s = coco_evaluator.coco_eval['bbox'].eval['precision']
+    n_classes = s.shape[2] # except `__background__`
+    per_class_AP = [np.mean(s[0, :, c-1, 0, 2]) for c in range(n_classes)]
+    return per_class_AP
+
+
 def convert_to_coco_api_obj_part(ds):
     """
     get obj/part_coco_dset (COCO) datasets from data in `ds` dataset (image, obj_target, part_target)
