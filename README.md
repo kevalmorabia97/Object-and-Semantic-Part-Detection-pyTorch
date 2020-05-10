@@ -74,7 +74,7 @@ torchvision==0.4.1
 tqdm==4.4.11
 ```
 
-## Contributers:
+## Contributors:
 1. Keval Morabia ([kevalmorabia97](https://github.com/kevalmorabia97/))
 2. Jatin Arora ([jatinarora2702](https://github.com/jatinarora2702))
 3. Tara Vijaykumar ([tara-vijaykumar](https://github.com/tara-vijaykumar))
