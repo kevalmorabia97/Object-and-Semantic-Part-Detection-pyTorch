@@ -3,8 +3,11 @@ Joint detection of Object and its Semantic parts using Attention-based feature f
 
 ## Model Architecture:
 We build our model on top of torchvision's Faster-RCNN model. Our model architecture is highly motivated from [this paper](https://link.springer.com/chapter/10.1007/978-3-030-20873-8_32) in that we replace the Relationship modeling and LSTM based feature fusion with an ```Attention-based feature fusion``` architecture.
-We define a hyperparameter called ```fusion_thresh``` that decides which object and part proposals boxes are related to each other and should undergo fusion. ```fusion_thresh=0.9``` means that we consider those object and part boxes where their intersection area is atleast ```0.9*area_of_part```. More details in _Project_Report.pdf_ file.
-![](https://github.com/kevalmorabia97/Object-and-Semantic-Part-Detection-pyTorch/blob/master/extra/architecture.png)
+We define a hyperparameter called ```fusion_thresh``` that decides which object and part proposals boxes are related to each other and should undergo fusion. ```fusion_thresh=0.9``` means that we consider those object and part boxes where their intersection area is atleast ```0.9*area_of_part```.
+![](https://github.com/kevalmorabia97/Object-and-Semantic-Part-Detection-pyTorch/blob/master/extra/imgs/architecture.png)<br>
+![](https://github.com/kevalmorabia97/Object-and-Semantic-Part-Detection-pyTorch/blob/master/extra/imgs/feature_fusion.png)
+
+More details in [Project_Report.pdf](https://github.com/kevalmorabia97/Object-and-Semantic-Part-Detection-pyTorch/blob/master/Project_Report.pdf) file and [Video Presentation](https://drive.google.com/open?id=1cdqaQUN77hxnAd_xIfeRv47RRTU5W9wX).
 
 ## Dataset Info:
 **Dataset:** [PASCAL VOC 2010 dataset](http://host.robots.ox.ac.uk/pascal/VOC/voc2010/index.html#devkit)<br>
@@ -43,24 +46,30 @@ Before Merging Part Classes|After merging Part Classes
 ![](https://github.com/kevalmorabia97/Object-and-Semantic-Part-Detection-pyTorch/blob/master/data/VOCdevkit/VOC2010/example_merged_part_images/2008_000217_allparts.jpg)  |  ![](https://github.com/kevalmorabia97/Object-and-Semantic-Part-Detection-pyTorch/blob/master/data/VOCdevkit/VOC2010/example_merged_part_images/2008_000217_mergedparts.jpg)
 ![](https://github.com/kevalmorabia97/Object-and-Semantic-Part-Detection-pyTorch/blob/master/data/VOCdevkit/VOC2010/example_merged_part_images/2008_000112_allparts.jpg)  |  ![](https://github.com/kevalmorabia97/Object-and-Semantic-Part-Detection-pyTorch/blob/master/data/VOCdevkit/VOC2010/example_merged_part_images/2008_000112_mergedparts.jpg)
 
-## Running the code:
+## Running the code (with default parameters):
 For training a single model for animal object detection:<br>
 ```python3 main.py -e 15 --use_objects -tr animals_train -val animals_val -cf animals_object_class2ind```
 
 For training a single model for animal part detection:<br>
 ```python3 main.py -e 15 --use_parts -tr animals_train -val animals_val -cf animals_part_mergedclass2ind```
 
-For training the joint model for simultaneous animal object and part detection (with default parameters):<br>
+For training the joint model for simultaneous animal object and part detection:<br>
 ```python3 main_joint.py -e 15 -ft 0.9```
 
 ## Results:
-From our limited experiments for Animal Object ```(bird, cat, cow, dog, horse, sheep)``` and Part ```(face, leg, neck, tail, torso, wings)``` Detection, we find that the Attention-based Joint Detection model gives  improvement for Part classes in terms of ```mean Average Precision @IoU=0.5```.
+From our limited experiments for Animal Object ```(bird, cat, cow, dog, horse, sheep)``` and Part ```(face, leg, neck, tail, torso, wings)``` Detection, we find that the Attention-based Joint Detection model gives improvement for Part classes in terms of ```mean Average Precision @IoU=0.5```.
 
 | Model | Object Detection mAP@IoU=0.5 | Part Detection mAP@IoU=0.5 |
 | ------------- | ------------- | ------------- |
 | Single Object Detection Model  | 87.2  | --  |
 | Single Part Detection Model | --  | 51.3  |
-| Joint Object and Part Detection | **87.4**  | **52.0**  |
+| Joint Object and Part Detection | **87.5**  | **52.0**  |
+
+
+| Object Detections from Joint Model | Part Detections from Joint Model |
+| ------------- | ------------- |
+| ![](https://github.com/kevalmorabia97/Object-and-Semantic-Part-Detection-pyTorch/blob/master/extra/imgs/2008_000080_obj.jpg)  | ![](https://github.com/kevalmorabia97/Object-and-Semantic-Part-Detection-pyTorch/blob/master/extra/imgs/2008_000080_part.jpg) |
+| ![](https://github.com/kevalmorabia97/Object-and-Semantic-Part-Detection-pyTorch/blob/master/extra/imgs/2008_000765_obj.jpg)  | ![](https://github.com/kevalmorabia97/Object-and-Semantic-Part-Detection-pyTorch/blob/master/extra/imgs/2008_000765_part.jpg) |
 
 ## Requirements:
 ```
