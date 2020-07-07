@@ -1,4 +1,4 @@
-# Object-and-Semantic-Part-Detection-pyTorch
+# Attention-based Joint Detection of Object and Semantic Part
 Joint detection of Object and its Semantic parts using Attention-based feature fusion for 2 Faster RCNN models. This project is done as a part of our CS543 Computer Vision Project at UIUC.<br>
 [Link To ArXiv Pre-Print](https://arxiv.org/abs/2007.02419)
 
