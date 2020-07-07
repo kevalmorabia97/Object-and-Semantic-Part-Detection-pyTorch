@@ -1,5 +1,6 @@
 # Object-and-Semantic-Part-Detection-pyTorch
-Joint detection of Object and its Semantic parts using Attention-based feature fusion for 2 Faster RCNN models. This project is done as a part of our CS543 Computer Vision Project at UIUC.
+Joint detection of Object and its Semantic parts using Attention-based feature fusion for 2 Faster RCNN models. This project is done as a part of our CS543 Computer Vision Project at UIUC.<br>
+[Link To ArXiv Pre-Print](https://arxiv.org/abs/2007.02419)
 
 ## Model Architecture:
 We build our model on top of torchvision's Faster-RCNN model. Our model architecture is highly motivated from [this paper](https://link.springer.com/chapter/10.1007/978-3-030-20873-8_32) in that we replace the Relationship modeling and LSTM based feature fusion with an ```Attention-based feature fusion``` architecture.
@@ -87,3 +88,20 @@ tqdm==4.4.11
 1. Keval Morabia ([kevalmorabia97](https://github.com/kevalmorabia97/))
 2. Jatin Arora ([jatinarora2702](https://github.com/jatinarora2702))
 3. Tara Vijaykumar ([tara-vijaykumar](https://github.com/tara-vijaykumar))
+
+## Cite
+If you find this useful in your research, please cite our ArXiv pre-print:
+```
+@misc{morabia2020attentionbased,
+    title={Attention-based Joint Detection of Object and Semantic Part},
+    author={Keval Morabia and Jatin Arora and Tara Vijaykumar},
+    year={2020},
+    eprint={2007.02419},
+    archivePrefix={arXiv},
+    primaryClass={cs.CV}
+}
+```
+
+
+## Abstract:
+In this paper, we address the problem of joint detection of objects like dog and its semantic parts like face, leg, etc. Our model is created on top of two Faster-RCNN models that share their features to perform a novel Attention-based feature fusion of related Object and Part features to get enhanced representations of both. These representations are used for final classification and bounding box regression separately for both models. Our experiments on the PASCAL-Part 2010 dataset show that joint detection can simultaneously improve both object detection and part detection in terms of mean Average Precision (mAP) at IoU=0.5. 
