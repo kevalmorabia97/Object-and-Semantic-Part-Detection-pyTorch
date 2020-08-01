@@ -76,12 +76,12 @@ From our limited experiments for Animal Object ```(bird, cat, cow, dog, horse, s
 ```
 The code has been tested on the following requirements:
 
-numpy==1.18.2
-pycocotools==2.0.0
-Pillow==6.2.2
-torch==1.3.0
-torchvision==0.4.1
-tqdm==4.4.11
+numpy==1.19.1
+Pillow==7.2.0
+pycocotools==2.0.1
+torch==1.4.0
+torchvision==0.5.0
+tqdm==4.48.0
 ```
 
 ## Contributors:
