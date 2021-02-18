@@ -13,8 +13,8 @@ def compute_per_class_AP(coco_evaluator):
     return list[float] of length n_classes-1 (except `__background__`)
     """
     s = coco_evaluator.coco_eval['bbox'].eval['precision']
-    n_classes = s.shape[2] # except `__background__`
-    per_class_AP = [np.mean(s[0, :, c-1, 0, 2]) for c in range(n_classes)]
+    n_nonBG_classes = s.shape[2] # except `__background__`
+    per_class_AP = [np.mean(s[0, :, c, 0, 2]) for c in range(n_nonBG_classes)]
     return per_class_AP
 
 
