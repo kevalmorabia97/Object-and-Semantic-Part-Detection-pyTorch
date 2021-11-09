@@ -77,7 +77,7 @@ From our limited experiments for Animal Object ```(bird, cat, cow, dog, horse, s
 The code has been tested on the following requirements:
 
 numpy==1.19.1
-Pillow==7.2.0
+Pillow>=8.1.1
 pycocotools==2.0.1
 torch==1.4.0
 torchvision==0.5.0
